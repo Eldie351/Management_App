@@ -1,12 +1,31 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+jest.mock('bcrypt', () => ({
+  hash: jest.fn(),
+}));
+import * as bcrypt from 'bcrypt';
 
 describe('UsersService', () => {
   let service: UsersService;
+  let prismaMock: any;
 
   beforeEach(async () => {
+    prismaMock = {
+      user: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        findMany: jest.fn(),
+        delete: jest.fn(),
+      },
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersService],
+      providers: [
+        UsersService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
@@ -14,5 +33,46 @@ describe('UsersService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('throws if email already exists', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 1, email: 'a@a.com' });
+    await expect(service.create('a@a.com', 'A', 'pw')).rejects.toThrow('Email already in use');
+  });
+
+  it('creates a user with hashed password', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const hashed = 'hashed-password';
+    (bcrypt.hash as jest.Mock).mockResolvedValue(hashed);
+    const created = { id: 1, email: 'b@b.com', name: 'B', password: hashed };
+    prismaMock.user.create.mockResolvedValue(created);
+
+    const result = await service.create('b@b.com', 'B', 'plain');
+
+    expect(prismaMock.user.create).toHaveBeenCalledWith({
+      data: { email: 'b@b.com', name: 'B', password: hashed },
+    });
+    expect(result).toEqual(created);
+  });
+
+  it('delegates findByEmail to prisma', async () => {
+    const user = { id: 2, email: 'c@c.com' } as any;
+    prismaMock.user.findUnique.mockResolvedValue(user);
+    const res = await service.findByEmail('c@c.com');
+    expect(res).toEqual(user);
+  });
+
+  it('finds users by store id', async () => {
+    const users = [{ id: 5, email: 'd@d.com' }];
+    prismaMock.user.findMany.mockResolvedValue(users);
+    const res = await service.findByStore(10);
+    expect(prismaMock.user.findMany).toHaveBeenCalledWith({ where: { stores: { some: { id: 10 } } } });
+    expect(res).toEqual(users);
+  });
+
+  it('deletes a user by id', async () => {
+    prismaMock.user.delete.mockResolvedValue({});
+    await service.delete(3);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: 3 } });
   });
 });
