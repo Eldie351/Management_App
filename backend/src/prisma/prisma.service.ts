@@ -1,24 +1,19 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-
-let PrismaClientPkg: any;
-try {
-  PrismaClientPkg = require('@prisma/client');
-} catch (e) {
-  PrismaClientPkg = null;
-}
-
-const PrismaClient = PrismaClientPkg
-  ? PrismaClientPkg.PrismaClient
-  : class {
-      async $connect() {}
-      async $disconnect() {}
-    };
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 @Injectable()
-export class PrismaService extends (PrismaClient as any) implements OnModuleInit {
-  async onModuleInit() {
-    if (typeof this.$connect === 'function') {
-      await this.$connect();
+export class PrismaService extends PrismaClient implements OnModuleInit {
+  constructor() {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      throw new Error('DATABASE_URL environment variable is required for Prisma');
     }
+
+    super({ adapter: new PrismaPg(databaseUrl) });
+  }
+
+  async onModuleInit() {
+    await this.$connect();
   }
 }

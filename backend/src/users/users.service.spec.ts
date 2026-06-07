@@ -9,7 +9,14 @@ import * as bcrypt from 'bcrypt';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let prismaMock: any;
+  let prismaMock: {
+    user: {
+      findUnique: jest.Mock;
+      create: jest.Mock;
+      findMany: jest.Mock;
+      delete: jest.Mock;
+    };
+  };
 
   beforeEach(async () => {
     prismaMock = {
@@ -24,7 +31,10 @@ describe('UsersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
-        { provide: PrismaService, useValue: prismaMock },
+        {
+          provide: PrismaService,
+          useValue: prismaMock,
+        },
       ],
     }).compile();
 
@@ -37,7 +47,9 @@ describe('UsersService', () => {
 
   it('throws if email already exists', async () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 1, email: 'a@a.com' });
-    await expect(service.create('a@a.com', 'A', 'pw')).rejects.toThrow('Email already in use');
+    await expect(service.create('a@a.com', 'A', 'pw')).rejects.toThrow(
+      'Email already in use',
+    );
   });
 
   it('creates a user with hashed password', async () => {
@@ -56,7 +68,7 @@ describe('UsersService', () => {
   });
 
   it('delegates findByEmail to prisma', async () => {
-    const user = { id: 2, email: 'c@c.com' } as any;
+    const user = { id: 2, email: 'c@c.com' };
     prismaMock.user.findUnique.mockResolvedValue(user);
     const res = await service.findByEmail('c@c.com');
     expect(res).toEqual(user);
@@ -66,7 +78,9 @@ describe('UsersService', () => {
     const users = [{ id: 5, email: 'd@d.com' }];
     prismaMock.user.findMany.mockResolvedValue(users);
     const res = await service.findByStore(10);
-    expect(prismaMock.user.findMany).toHaveBeenCalledWith({ where: { stores: { some: { id: 10 } } } });
+    expect(prismaMock.user.findMany).toHaveBeenCalledWith({
+      where: { stores: { some: { id: 10 } } },
+    });
     expect(res).toEqual(users);
   });
 
