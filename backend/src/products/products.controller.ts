@@ -34,6 +34,14 @@ export class ProductsController {
     return this.productsService.findAllByUserId(userId);
   }
 
+  @Patch(':id/recharge')
+  async rechargeStock(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('quantity', ParseIntPipe) quantity: number,
+  ) {
+    return this.productsService.rechargeProduct(id, quantity);
+  }
+
   @Patch(':id/stock')
   async updateStock(
     @Param('id', ParseIntPipe) id: number,

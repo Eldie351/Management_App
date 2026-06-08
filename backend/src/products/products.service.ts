@@ -26,6 +26,7 @@ export class ProductsService {
         name: dto.name,
         sku: dto.sku,
         quantity: dto.quantity,
+        initialStock: dto.quantity,
         price: dto.price,
         description: dto.description,
         storeId: dto.storeId,
@@ -41,10 +42,31 @@ export class ProductsService {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
-    return this.prisma.product.findMany({
+    // On récupère les produits en incluant leurs ventes associées (via le storeId et le nom/sku)
+    const products = await this.prisma.product.findMany({
       where: { storeId },
       orderBy: { createdAt: 'desc' },
     });
+
+    // Pour chaque produit, on cherche ses ventes pour faire la somme
+    return Promise.all(
+      products.map(async (product) => {
+        const sales = await this.prisma.sale.findMany({
+          where: { 
+            storeId: product.storeId,
+            productName: product.name,
+          },
+        });
+
+        // Somme des quantités vendues
+        const totalSold = sales.reduce((acc, sale) => acc + sale.quantity, 0);
+
+        return {
+          ...product,
+          initialStock: product.quantity + totalSold, // 📌 FORMULE : Quantité actuelle + Quantités vendues
+        };
+      })
+    );
   }
 
   /**
@@ -102,20 +124,49 @@ export class ProductsService {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
-    return this.prisma.product.findMany({
-      where: {
-        store: {
-          userId: userId, // Filtre par l'ID de l'utilisateur qui possède les magasins
-        },
-      },
+    const products = await this.prisma.product.findMany({
+      where: { store: { userId } },
       include: {
-        store: {
-          select: {
-            name: true, // Permet d'afficher le nom du magasin sur le tableau global
-          },
-        },
+        store: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
+    });
+
+    return Promise.all(
+      products.map(async (product) => {
+        const sales = await this.prisma.sale.findMany({
+          where: { 
+            storeId: product.storeId,
+            productName: product.name,
+          },
+        });
+
+        const totalSold = sales.reduce((acc, sale) => acc + sale.quantity, 0);
+
+        return {
+          ...product,
+          initialStock: product.quantity + totalSold, // FORMULE : Quantité actuelle + Quantités vendues
+        };
+      })
+    );
+  }
+
+    /**
+   * RECHARGER LE STOCK (RÉAPPROVISIONNEMENT)
+   */
+  async rechargeProduct(id: number, quantityToAdd: number) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException('Produit introuvable.');
+
+    // Règle logistique : Le nouveau stock de départ devient la quantité actuelle + l'apport de la recharge
+    const newInitialStock = product.quantity + quantityToAdd;
+
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        quantity: product.quantity + quantityToAdd, // Ajout au stock réel
+        initialStock: newInitialStock,             // Le stock de départ devient la nouvelle référence
+      },
     });
   }
 
