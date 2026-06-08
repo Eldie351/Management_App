@@ -94,6 +94,31 @@ export class ProductsService {
     });
   }
 
+    /**
+   * 5. RÉCUPÉRER TOUS LES PRODUITS DE TOUS LES MAGASINS D'UN UTILISATEUR
+   */
+  async findAllByUserId(userId: number) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    return this.prisma.product.findMany({
+      where: {
+        store: {
+          userId: userId, // Filtre par l'ID de l'utilisateur qui possède les magasins
+        },
+      },
+      include: {
+        store: {
+          select: {
+            name: true, // Permet d'afficher le nom du magasin sur le tableau global
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   /**
    * RÉCUPÉRER L'HISTORIQUE DES VENTES D'UN MAGASIN
    */

@@ -72,12 +72,8 @@ export class StoresService {
     return { message: 'Magasin et tous ses produits supprimés avec succès.' };
   }
 
-  /**
-   * 4. CALCULER LES STATISTIQUES RÉELLES BASÉES SUR LES VENTES
-   */
- 
     /**
-   * 4. CALCULER LES STATISTIQUES RÉELLES ET ROBUSTES BASÉES SUR LES VENTES
+   * 4. CALCULER LES STATISTIQUES AVEC GRAPHIQUES COMPLETS (MÊME SANS VENTES)
    */
   async getStoreStats(storeId: number) {
     if (!this.prisma) {
@@ -88,7 +84,7 @@ export class StoresService {
       where: { id: storeId },
       include: { 
         products: true,
-        sales: true, // Récupère l'historique complet de PostgreSQL
+        sales: true,
       },
     });
 
@@ -100,50 +96,59 @@ export class StoresService {
     const totalSalesRevenue = store.sales.reduce((acc, s) => acc + s.total, 0);
     const totalUnitsSold = store.sales.reduce((acc, s) => acc + s.quantity, 0);
 
+    // ------------------------------------------------------------
+    // INITIALISATION DES GRAPHES COMPLETS À ZÉRO
+    // ------------------------------------------------------------
+    const jours = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+    const mois = ['Janv', 'Févr', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+
     const dailyMap = new Map<string, number>();
     const monthlyMap = new Map<string, number>();
     const yearlyMap = new Map<string, number>();
 
-    // Tableau des jours pour s'assurer d'une clé propre en français
-    const jours = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-    const mois = ['Janv', 'Févr', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+    // On pré-remplit la semaine entière à 0
+    jours.forEach(j => dailyMap.set(j, 0));
 
+    // On pré-remplit l'année entière à 0
+    mois.forEach(m => monthlyMap.set(m, 0));
+
+    // On pré-remplit les 3 dernières années à 0 par défaut
+    const currentYear = new Date().getFullYear();
+    yearlyMap.set((currentYear - 2).toString(), 0);
+    yearlyMap.set((currentYear - 1).toString(), 0);
+    yearlyMap.set(currentYear.toString(), 0);
+
+    // ------------------------------------------------------------
+    // INJECTION DES VENTES RÉELLES DANS LE CALENDRIER
+    // ------------------------------------------------------------
     store.sales.forEach((sale) => {
       const date = new Date(sale.createdAt);
       
-      // 1. Clé Jour propre (ex: "Lun", "Mar")
-      const dayKey = jours[date.getDay()];
-      dailyMap.set(dayKey, (dailyMap.get(dayKey) || 0) + sale.total);
-
-      // 2. Clé Mois propre (ex: "Juin", "Juillet")
+      // Ajustement pour correspondre à notre tableau de jours propres (0=Dimanche, 1=Lundi...)
+      let dayIndex = date.getDay() - 1;
+      if (dayIndex === -1) dayIndex = 6; // Gérer le Dimanche (index 6 dans notre tableau jours)
+      const dayKey = jours[dayIndex];
+      
       const monthKey = mois[date.getMonth()];
-      monthlyMap.set(monthKey, (monthlyMap.get(monthKey) || 0) + sale.total);
-
-      // 3. Clé Année
       const yearKey = date.getFullYear().toString();
-      yearlyMap.set(yearKey, (yearlyMap.get(yearKey) || 0) + sale.total);
+
+      // Accumulation des montants (remplace le 0 initial)
+      if (dailyMap.has(dayKey)) dailyMap.set(dayKey, dailyMap.get(dayKey)! + sale.total);
+      if (monthlyMap.has(monthKey)) monthlyMap.set(monthKey, monthlyMap.get(monthKey)! + sale.total);
+      if (yearlyMap.has(yearKey)) yearlyMap.set(yearKey, yearlyMap.get(yearKey)! + sale.total);
     });
 
-    // Conversion en tableaux pour les barres graphiques
-    let daily = Array.from(dailyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
-    let monthly = Array.from(monthlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
-    let yearly = Array.from(yearlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
-
-    // Si un magasin n'a pas encore de ventes pour la période, on initialise la barre actuelle
-    const currentDayName = jours[new Date().getDay()];
-    const currentMonthName = mois[new Date().getMonth()];
-    const currentYearName = new Date().getFullYear().toString();
-
-    if (daily.length === 0) daily = [{ date: currentDayName, valeur: 0 }];
-    if (monthly.length === 0) monthly = [{ date: currentMonthName, valeur: 0 }];
-    if (yearly.length === 0) yearly = [{ date: currentYearName, valeur: 0 }];
+    // Conversion en tableaux ordonnés pour le Frontend
+    const daily = Array.from(dailyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
+    const monthly = Array.from(monthlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
+    const yearly = Array.from(yearlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
 
     return {
       storeName: store.name,
       summary: {
         totalProducts: currentProductsVolume,
         totalValue: currentStockValue,
-        totalRevenue: totalSalesRevenue, // Lié au Chiffre d'affaires global
+        totalRevenue: totalSalesRevenue,
         unitsSold: totalUnitsSold,
       },
       daily,

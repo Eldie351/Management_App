@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Get, Delete, Patch, Param, ParseIntPipe, UseGuards } from '@nestjs/common'; // <-- LE MOT "Patch" EST BIEN PRÉSENT ICI
+import { Body, Controller, Post, Get, Delete, Request, Patch, Param, ParseIntPipe, UseGuards } from '@nestjs/common'; // <-- LE MOT "Patch" EST BIEN PRÉSENT ICI
 import { AuthGuard } from '@nestjs/passport';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -26,6 +26,12 @@ export class ProductsController {
   @Get('store/:storeId/sales')
   async getStoreSales(@Param('storeId', ParseIntPipe) storeId: number) {
     return this.productsService.findSalesByStore(storeId);
+  }
+
+  @Get('user/all')
+  async findAllByUser(@Request() req) {
+    const userId = req.user.id; // Extrait l'ID utilisateur réel depuis le Token
+    return this.productsService.findAllByUserId(userId);
   }
 
   @Patch(':id/stock')
