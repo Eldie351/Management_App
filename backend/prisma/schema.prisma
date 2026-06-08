@@ -4,7 +4,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CASHIER
 }
 
 model User {
@@ -21,9 +26,11 @@ model User {
 model Store {
   id        Int       @id @default(autoincrement())
   name      String
+  location  String?
   createdAt DateTime  @default(now())
   userId    Int
   products  Product[]
+  sales     Sale[]
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -31,6 +38,7 @@ model Product {
   id          Int      @id @default(autoincrement())
   name        String
   quantity    Int      @default(0)
+  sku         String?
   price       Float
   description String?
   createdAt   DateTime @default(now())
@@ -39,8 +47,13 @@ model Product {
   store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
 
-enum UserRole {
-  ADMIN
-  MANAGER
-  CASHIER
+model Sale {
+  id          Int      @id @default(autoincrement())
+  productName String
+  sku         String?
+  quantity    Int
+  total       Float
+  createdAt   DateTime @default(now())
+  storeId     Int
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }

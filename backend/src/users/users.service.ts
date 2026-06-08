@@ -49,6 +49,40 @@ export class UsersService {
     });
   }
 
+async findProfileWithStores(id: number) {
+  if (!this.prisma) {
+    throw new InternalServerErrorException('PrismaService not available');
+  }
+
+  return this.prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      createdAt: true,
+      stores: {
+        select: {
+          id: true,
+          name: true,
+          location: true,
+          _count: {
+            select: { products: true } // Compte le nombre de produits par magasin
+          }
+        }
+      }
+    }
+  });
+}
+
+  async findById(id: number) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+    return this.prisma.user.findUnique({ where: { id } });
+  }
+
   async delete(id: number): Promise<void> {
     if (!this.prisma) {
       throw new InternalServerErrorException('PrismaService not available');
