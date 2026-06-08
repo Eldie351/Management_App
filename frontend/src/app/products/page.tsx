@@ -29,7 +29,7 @@ function ProductsContent() {
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Fonction pour charger la liste des produits
+  // Fonction pour charger les produits
   const fetchProducts = async () => {
     const token = localStorage.getItem('access_token');
     if (!token) {
@@ -37,14 +37,12 @@ function ProductsContent() {
       return;
     }
 
-    if (!storeId) {
-      setError("Aucun identifiant d'entrepôt spécifié. Retournez au tableau de bord.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const res = await fetch(`http://localhost:3000/products/store/${storeId}`, {
+      const url = storeId 
+        ? `http://localhost:3000/products/store/${storeId}`
+        : `http://localhost:3000/products/user/all`;
+
+      const res = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -71,7 +69,6 @@ function ProductsContent() {
     e.preventDefault();
     setFormError('');
     setIsSubmitting(true);
-
     const token = localStorage.getItem('access_token');
 
     try {
@@ -92,20 +89,14 @@ function ProductsContent() {
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Échec de l’ajout.');
 
-      if (!res.ok) {
-        throw new Error(data.message || 'Échec de l’ajout du produit');
-      }
-
-      // Reset et fermeture
       setName('');
       setSku('');
       setQuantity(0);
       setPrice(0);
       setDescription('');
       setIsModalOpen(false);
-
-      // Rechargement à chaud de la liste
       fetchProducts();
     } catch (err: any) {
       setFormError(err.message);
@@ -142,29 +133,36 @@ function ProductsContent() {
       <main className="flex-1 overflow-y-auto p-8">
         <div className="flex items-center justify-between border-b pb-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Gestion du Stock</h1>
-            <p className="text-muted-foreground mt-1">Entrepôt référencé : #{storeId}</p>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {storeId ? 'Gestion du Stock' : 'Inventaire Global'}
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              {storeId ? `Entrepôt référencé : #${storeId}` : 'Consultez la totalité des articles en stock'}
+            </p>
           </div>
           <div className="space-x-4">
-            <Button variant="outline" onClick={() => router.push('/dashboard')}>← Retour</Button>
-            <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
+            <Button variant="outline" onClick={() => router.push('/dashboard')}>← Tableau de bord</Button>
+            {storeId && (
+              <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
+            )}
           </div>
         </div>
 
-        {/* LOGISTIQUE DES TABLEAUX */}
         <Card>
           <CardHeader>
-            <CardTitle>Marchandises en stock</CardTitle>
-            <CardDescription>Liste globale des références contenues dans cet entrepôt.</CardDescription>
+            <CardTitle>Inventaire Logistique</CardTitle>
+            <CardDescription>Suivi précis des volumes, références, stocks de départ et dates d'entrée.</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
                   <TableHead>Désignation</TableHead>
                   <TableHead>Réf (SKU)</TableHead>
-                  <TableHead className="text-center">Quantité</TableHead>
+                  {!storeId && <TableHead>Entrepôt</TableHead>}
+                  <TableHead className="text-center">Stock de Départ</TableHead>
+                  <TableHead className="text-center">Stock Actuel</TableHead>
+                  <TableHead className="text-center">Date d'Entrée</TableHead>
                   <TableHead className="text-right">Prix Unitaire</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -172,17 +170,36 @@ function ProductsContent() {
               <TableBody>
                 {products.map((product) => (
                   <TableRow key={product.id}>
-                    <TableCell className="font-mono">#{product.id}</TableCell>
                     <TableCell className="font-medium">
                       <div>{product.name}</div>
                       {product.description && <span className="text-xs text-gray-400">{product.description}</span>}
                     </TableCell>
-                    <TableCell className="text-gray-500">{product.sku || 'N/A'}</TableCell>
+                    <TableCell className="text-gray-500 font-mono text-xs">{product.sku || 'N/A'}</TableCell>
+                    
+                    {!storeId && (
+                      <TableCell className="font-semibold text-blue-600">
+                        🏢 {product.store?.name || `Magasin #${product.storeId}`}
+                      </TableCell>
+                    )}
+
+                    <TableCell className="text-center text-gray-500 font-medium">
+                      {product.initialStock ?? product.quantity} u.
+                    </TableCell>
+
                     <TableCell className="text-center font-semibold">
                       <span className={`px-2.5 py-0.5 rounded-full text-xs ${product.quantity > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                         {product.quantity} unités
                       </span>
                     </TableCell>
+
+                    <TableCell className="text-center text-xs text-gray-500">
+                      {product.createdAt ? new Date(product.createdAt).toLocaleDateString('fr-FR', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric'
+                      }) : 'N/A'}
+                    </TableCell>
+
                     <TableCell className="text-right font-mono">{Number(product.price).toFixed(2)} €</TableCell>
                     <TableCell className="text-right">
                       <Button variant="destructive" size="sm" onClick={() => handleDeleteProduct(product.id)}>
@@ -194,8 +211,8 @@ function ProductsContent() {
 
                 {products.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-gray-400">
-                      Cet entrepôt est vide. Aucun produit enregistré.
+                    <TableCell colSpan={storeId ? 7 : 8} className="text-center py-8 text-gray-400">
+                      Aucun produit enregistré.
                     </TableCell>
                   </TableRow>
                 )}
@@ -216,34 +233,29 @@ function ProductsContent() {
             <CardContent>
               <form onSubmit={handleCreateProduct} className="space-y-4">
                 {formError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{formError}</p>}
-                
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="prodName">Nom du produit *</Label>
                     <Input id="prodName" placeholder="Ex: Ordinateur Portable ASUS" value={name} onChange={(e) => setName(e.target.value)} required />
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="prodSku">Référence interne (SKU)</Label>
                     <Input id="prodSku" placeholder="Ex: ASUS-123" value={sku} onChange={(e) => setSku(e.target.value)} />
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="prodPrice">Prix Unitaire (€) *</Label>
                     <Input id="prodPrice" type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(Number(e.target.value))} required />
                   </div>
-
-                  <div className="space-y-2 col-span-2">
+                                    <div className="space-y-2 col-span-2">
                     <Label htmlFor="prodQty">Quantité Initiale *</Label>
                     <Input id="prodQty" type="number" min="0" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} required />
                   </div>
-
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="prodDesc">Description</Label>
                     <Input id="prodDesc" placeholder="Détails techniques, couleur..." value={description} onChange={(e) => setDescription(e.target.value)} />
                   </div>
                 </div>
-                                <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
+                <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
                   <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Annuler</Button>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? 'Insertion...' : 'Valider l’entrée'}
