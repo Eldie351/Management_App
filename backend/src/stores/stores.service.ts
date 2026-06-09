@@ -73,75 +73,84 @@ export class StoresService {
   }
 
     /**
-   * 4. CALCULER LES STATISTIQUES AVEC GRAPHIQUES COMPLETS (MÊME SANS VENTES)
+   * 4. CALCUL DES STATISTIQUES AVEC HISTORIQUE DES ANNÉES DEPUIS L'INSCRIPTION
    */
   async getStoreStats(storeId: number) {
     if (!this.prisma) {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
+    // 1. Récupérer le magasin avec ses produits, ses ventes ET l'utilisateur propriétaire
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       include: { 
         products: true,
         sales: true,
+        user: {
+          select: { createdAt: true } // Permet de récupérer l'année exacte d'inscription
+        }
       },
     });
 
-    if (!store) throw new NotFoundException('Magasin introuvable.');
+    if (!store) {
+      throw new NotFoundException('Magasin introuvable.');
+    }
 
-    // Calculs de base
     const currentProductsVolume = store.products.reduce((acc, p) => acc + p.quantity, 0);
     const currentStockValue = store.products.reduce((acc, p) => acc + (p.price * p.quantity), 0);
     const totalSalesRevenue = store.sales.reduce((acc, s) => acc + s.total, 0);
     const totalUnitsSold = store.sales.reduce((acc, s) => acc + s.quantity, 0);
 
-    // ------------------------------------------------------------
-    // INITIALISATION DES GRAPHES COMPLETS À ZÉRO
-    // ------------------------------------------------------------
-    const jours = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-    const mois = ['Janv', 'Févr', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+    const joursSemaine = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+    const moisAnnee = ['Janv', 'Févr', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
 
-    const dailyMap = new Map<string, number>();
+    const weeklyMap = new Map<string, number>();
     const monthlyMap = new Map<string, number>();
     const yearlyMap = new Map<string, number>();
 
-    // On pré-remplit la semaine entière à 0
-    jours.forEach(j => dailyMap.set(j, 0));
-
-    // On pré-remplit l'année entière à 0
-    mois.forEach(m => monthlyMap.set(m, 0));
-
-    // On pré-remplit les 3 dernières années à 0 par défaut
+    // 2. Pré-remplissage de la semaine et de l'année à 0
+    joursSemaine.forEach(j => weeklyMap.set(j, 0));
+    moisAnnee.forEach(m => monthlyMap.set(m, 0));
+    
+    // 3. 🎯 GÉNÉRATION DYNAMIQUE DE L'HISTORIQUE DES ANNÉES (Formule incrémentale)
+    const registrationYear = store.user?.createdAt ? new Date(store.user.createdAt).getFullYear() : new Date().getFullYear();
     const currentYear = new Date().getFullYear();
-    yearlyMap.set((currentYear - 2).toString(), 0);
-    yearlyMap.set((currentYear - 1).toString(), 0);
-    yearlyMap.set(currentYear.toString(), 0);
 
-    // ------------------------------------------------------------
-    // INJECTION DES VENTES RÉELLES DANS LE CALENDRIER
-    // ------------------------------------------------------------
+    // On boucle de l'année d'inscription à l'année actuelle pour pré-remplir à 0
+    for (let year = registrationYear; year <= currentYear; year++) {
+      yearlyMap.set(year.toString(), 0);
+    }
+
+    // 4. Injection et calcul cumulé des ventes réelles
     store.sales.forEach((sale) => {
       const date = new Date(sale.createdAt);
       
-      // Ajustement pour correspondre à notre tableau de jours propres (0=Dimanche, 1=Lundi...)
       let dayIndex = date.getDay() - 1;
-      if (dayIndex === -1) dayIndex = 6; // Gérer le Dimanche (index 6 dans notre tableau jours)
-      const dayKey = jours[dayIndex];
-      
-      const monthKey = mois[date.getMonth()];
+      if (dayIndex === -1) dayIndex = 6;
+      const dayKey = joursSemaine[dayIndex];
+
+      const monthKey = moisAnnee[date.getMonth()];
       const yearKey = date.getFullYear().toString();
 
-      // Accumulation des montants (remplace le 0 initial)
-      if (dailyMap.has(dayKey)) dailyMap.set(dayKey, dailyMap.get(dayKey)! + sale.total);
+      if (weeklyMap.has(dayKey)) weeklyMap.set(dayKey, weeklyMap.get(dayKey)! + sale.total);
       if (monthlyMap.has(monthKey)) monthlyMap.set(monthKey, monthlyMap.get(monthKey)! + sale.total);
-      if (yearlyMap.has(yearKey)) yearlyMap.set(yearKey, yearlyMap.get(yearKey)! + sale.total);
+      
+      // Accumulation sur l'année (la clé existe forcément car créée dans la boucle d'incrémentation ci-dessus)
+      if (yearlyMap.has(yearKey)) {
+        yearlyMap.set(yearKey, yearlyMap.get(yearKey)! + sale.total);
+      } else {
+        // Sécurité si une vente était enregistrée sur une année antérieure à l'inscription par bug
+        yearlyMap.set(yearKey, sale.total);
+      }
     });
 
-    // Conversion en tableaux ordonnés pour le Frontend
-    const daily = Array.from(dailyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
+    const weekly = Array.from(weeklyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
     const monthly = Array.from(monthlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
-    const yearly = Array.from(yearlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
+    
+    // Tri chronologique des années pour le graphique
+    const yearly = Array.from(yearlyMap.entries())
+      .map(([date, valeur]) => ({ date, valeur }))
+      .sort((a, b) => Number(a.date) - Number(b.date));
 
     return {
       storeName: store.name,
@@ -151,7 +160,7 @@ export class StoresService {
         totalRevenue: totalSalesRevenue,
         unitsSold: totalUnitsSold,
       },
-      daily,
+      weekly,
       monthly,
       yearly,
     };

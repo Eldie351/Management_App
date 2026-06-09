@@ -42,28 +42,29 @@ export class ProductsService {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
-    // On récupère les produits en incluant leurs ventes associées (via le storeId et le nom/sku)
     const products = await this.prisma.product.findMany({
       where: { storeId },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Pour chaque produit, on cherche ses ventes pour faire la somme
     return Promise.all(
       products.map(async (product) => {
-        const sales = await this.prisma.sale.findMany({
+        // ON FILTRE : Uniquement les ventes créées APRÈS la dernière date de recharge (createdAt)
+        const salesAfterLastRecharge = await this.prisma.sale.findMany({
           where: { 
             storeId: product.storeId,
             productName: product.name,
+            createdAt: {
+              gte: product.createdAt, // Supérieur ou égal à la date de dernière recharge
+            },
           },
         });
 
-        // Somme des quantités vendues
-        const totalSold = sales.reduce((acc, sale) => acc + sale.quantity, 0);
+        const salesCountSinceRecharge = salesAfterLastRecharge.reduce((acc, sale) => acc + sale.quantity, 0);
 
         return {
           ...product,
-          initialStock: product.quantity + totalSold, // 📌 FORMULE : Quantité actuelle + Quantités vendues
+          initialStock: product.quantity + salesCountSinceRecharge, // FORMULE EXACTE
         };
       })
     );
@@ -134,38 +135,45 @@ export class ProductsService {
 
     return Promise.all(
       products.map(async (product) => {
-        const sales = await this.prisma.sale.findMany({
+        // MÊME FILTRE DE SÉCURITÉ TEMPORELLE
+        const salesAfterLastRecharge = await this.prisma.sale.findMany({
           where: { 
             storeId: product.storeId,
             productName: product.name,
+            createdAt: {
+              gte: product.createdAt,
+            },
           },
         });
 
-        const totalSold = sales.reduce((acc, sale) => acc + sale.quantity, 0);
+        const salesCountSinceRecharge = salesAfterLastRecharge.reduce((acc, sale) => acc + sale.quantity, 0);
 
         return {
           ...product,
-          initialStock: product.quantity + totalSold, // FORMULE : Quantité actuelle + Quantités vendues
+          initialStock: product.quantity + salesCountSinceRecharge, // FORMULE EXACTE
         };
       })
     );
   }
 
-    /**
-   * RECHARGER LE STOCK (RÉAPPROVISIONNEMENT)
+  /**
+   * 6. RECHARGER LE STOCK (CORRIGÉ SANS DOUBLE COMPTAGE)
    */
   async rechargeProduct(id: number, quantityToAdd: number) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    // 1. Vérifier si le produit existe
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Produit introuvable.');
 
-    // Règle logistique : Le nouveau stock de départ devient la quantité actuelle + l'apport de la recharge
-    const newInitialStock = product.quantity + quantityToAdd;
-
+    // 2. MISE À JOUR : On augmente uniquement la quantité actuelle et on renouvelle la date
     return this.prisma.product.update({
       where: { id },
       data: {
-        quantity: product.quantity + quantityToAdd, // Ajout au stock réel
-        initialStock: newInitialStock,             // Le stock de départ devient la nouvelle référence
+        quantity: product.quantity + quantityToAdd, // Seul le stock actuel prend l'augmentation
+        createdAt: new Date(),                      // Renouvellement de la date d'entrée
       },
     });
   }
