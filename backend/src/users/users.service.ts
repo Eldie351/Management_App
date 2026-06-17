@@ -67,6 +67,7 @@ async findProfileWithStores(id: number) {
           id: true,
           name: true,
           location: true,
+          currency: true,
           _count: {
             select: { products: true } // Compte le nombre de produits par magasin
           }

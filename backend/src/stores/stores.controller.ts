@@ -1,7 +1,6 @@
 import { Body, Controller, Post, Get, Delete, Param, ParseIntPipe, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { StoresService } from './stores.service';
-import { CreateStoreDto } from './dto/create-store.dto';
 
 @Controller('stores')
 @UseGuards(AuthGuard('jwt'))
@@ -9,14 +8,23 @@ export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
   @Post()
-  async create(@Body() createStoreDto: CreateStoreDto, @Request() req) {
-    const userId = req.user.id; 
-
+  async create(
+    @Request() req, 
+    @Body() body: { name: string; location?: string; currency?: string }
+  ) {
+    const userId = req.user.id;
     return this.storesService.createStore(
-      userId,
-      createStoreDto.name,
-      createStoreDto.location,
+      userId, 
+      body.name, 
+      body.location, 
+      body.currency
     );
+  }
+
+  @Get()
+  async findAll(@Request() req) {
+    const userId = req.user.id;
+    return this.storesService.findAllByUser(userId);
   }
 
   @Delete(':id')
@@ -24,22 +32,8 @@ export class StoresController {
     return this.storesService.deleteStore(id);
   }
 
-    @Get(':id/stats')
+  @Get(':id/stats')
   async getStats(@Param('id', ParseIntPipe) id: number) {
-    // 🔍 SCRIPT DE DIAGNOSTIC LOGISTIQUE
-    console.log(`============= ANALYSE DU MAGASIN ID #${id} =============`);
-    
-    const statsResult = await this.storesService.getStoreStats(id);
-    
-    console.log(`-> Nombre de ventes trouvées en base PostgreSQL pour ce magasin : ${statsResult.summary.unitsSold}`);
-    console.log(`-> Chiffre d'Affaires calculé par le service : ${statsResult.summary.totalRevenue} €`);
-    console.log(`========================================================`);
-
-    return statsResult;
-  }
-
-  @Get('user/:userId')
-  async findAllByUser(@Param('userId', ParseIntPipe) userId: number) {
-    return this.storesService.findAllByUser(userId);
+    return this.storesService.getStoreStats(id);
   }
 }

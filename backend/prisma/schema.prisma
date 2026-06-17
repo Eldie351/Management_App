@@ -12,6 +12,14 @@ enum UserRole {
   CASHIER
 }
 
+enum Currency {
+  XOF
+  EUR
+  USD
+  GBP
+  NGN
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
@@ -30,6 +38,7 @@ model Store {
   name      String
   location  String?
   createdAt DateTime  @default(now())
+  currency  Currency  @default(XOF)
   userId    Int
   products  Product[]
   sales     Sale[]

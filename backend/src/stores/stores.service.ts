@@ -5,36 +5,23 @@ import { PrismaService } from '../prisma/prisma.service';
 export class StoresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * 1. CRÉER UN MAGASIN (ENTREPÔT)
+    /**
+   * 1. CRÉER UN MAGASIN AVEC SA DEVISE CONFIGURÉE
    */
-  async createStore(userId: number, name: string, location?: string) {
+  async createStore(userId: number, name: string, location?: string, currency?: any) {
     if (!this.prisma) {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
-    const userExists = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!userExists) {
-      throw new NotFoundException("Impossible de créer le magasin : Utilisateur introuvable.");
-    }
+    const userExists = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!userExists) throw new NotFoundException("Utilisateur introuvable.");
 
     return this.prisma.store.create({
       data: {
         name,
         location,
+        currency,
         userId,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
       },
     });
   }
@@ -72,29 +59,24 @@ export class StoresService {
     return { message: 'Magasin et tous ses produits supprimés avec succès.' };
   }
 
-    /**
-   * 4. CALCUL DES STATISTIQUES AVEC HISTORIQUE DES ANNÉES DEPUIS L'INSCRIPTION
+   /**
+   * 4. CALCUL DES STATISTIQUES SÉCURISÉES PAR INDEX UNIQUES
    */
   async getStoreStats(storeId: number) {
     if (!this.prisma) {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
-    // 1. Récupérer le magasin avec ses produits, ses ventes ET l'utilisateur propriétaire
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       include: { 
         products: true,
         sales: true,
-        user: {
-          select: { createdAt: true } // Permet de récupérer l'année exacte d'inscription
-        }
+        user: { select: { createdAt: true } }
       },
     });
 
-    if (!store) {
-      throw new NotFoundException('Magasin introuvable.');
-    }
+    if (!store) throw new NotFoundException('Magasin introuvable.');
 
     const currentProductsVolume = store.products.reduce((acc, p) => acc + p.quantity, 0);
     const currentStockValue = store.products.reduce((acc, p) => acc + (p.price * p.quantity), 0);
@@ -104,63 +86,50 @@ export class StoresService {
     const joursSemaine = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
     const moisAnnee = ['Janv', 'Févr', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
 
-    const weeklyMap = new Map<string, number>();
-    const monthlyMap = new Map<string, number>();
-    const yearlyMap = new Map<string, number>();
+    const weeklyMap = new Map<number, number>();
+    const monthlyMap = new Map<number, number>();
+    const yearlyMap = new Map<number, number>();
 
-    // 2. Pré-remplissage de la semaine et de l'année à 0
-    joursSemaine.forEach(j => weeklyMap.set(j, 0));
-    moisAnnee.forEach(m => monthlyMap.set(m, 0));
-    
-    // 3. 🎯 GÉNÉRATION DYNAMIQUE DE L'HISTORIQUE DES ANNÉES (Formule incrémentale)
+    // Initialisation des structures avec des index numériques (0 à 6 pour les jours, 0 à 11 pour les mois)
+    for (let i = 0; i < 7; i++) weeklyMap.set(i, 0);
+    for (let i = 0; i < 12; i++) monthlyMap.set(i, 0);
+
     const registrationYear = store.user?.createdAt ? new Date(store.user.createdAt).getFullYear() : new Date().getFullYear();
     const currentYear = new Date().getFullYear();
-
-    // On boucle de l'année d'inscription à l'année actuelle pour pré-remplir à 0
     for (let year = registrationYear; year <= currentYear; year++) {
-      yearlyMap.set(year.toString(), 0);
+      yearlyMap.set(year, 0);
     }
 
-    // 4. Injection et calcul cumulé des ventes réelles
+    // Traitement des ventes
     store.sales.forEach((sale) => {
       const date = new Date(sale.createdAt);
       
       let dayIndex = date.getDay() - 1;
-      if (dayIndex === -1) dayIndex = 6;
-      const dayKey = joursSemaine[dayIndex];
+      if (dayIndex === -1) dayIndex = 6; // Lundi=0, Dimanche=6
 
-      const monthKey = moisAnnee[date.getMonth()];
-      const yearKey = date.getFullYear().toString();
+      const monthIndex = date.getMonth(); // 0 à 11
+      const yearKey = date.getFullYear();
 
-      if (weeklyMap.has(dayKey)) weeklyMap.set(dayKey, weeklyMap.get(dayKey)! + sale.total);
-      if (monthlyMap.has(monthKey)) monthlyMap.set(monthKey, monthlyMap.get(monthKey)! + sale.total);
-      
-      // Accumulation sur l'année (la clé existe forcément car créée dans la boucle d'incrémentation ci-dessus)
-      if (yearlyMap.has(yearKey)) {
-        yearlyMap.set(yearKey, yearlyMap.get(yearKey)! + sale.total);
-      } else {
-        // Sécurité si une vente était enregistrée sur une année antérieure à l'inscription par bug
-        yearlyMap.set(yearKey, sale.total);
-      }
+      if (weeklyMap.has(dayIndex)) weeklyMap.set(dayIndex, weeklyMap.get(dayIndex)! + sale.total);
+      if (monthlyMap.has(monthIndex)) monthlyMap.set(monthIndex, monthlyMap.get(monthIndex)! + sale.total);
+      if (yearlyMap.has(yearKey)) yearlyMap.set(yearKey, yearlyMap.get(yearKey)! + sale.total);
     });
 
-    const weekly = Array.from(weeklyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
-    const monthly = Array.from(monthlyMap.entries()).map(([date, valeur]) => ({ date, valeur }));
-    
-    // Tri chronologique des années pour le graphique
-    const yearly = Array.from(yearlyMap.entries())
-      .map(([date, valeur]) => ({ date, valeur }))
-      .sort((a, b) => Number(a.date) - Number(b.date));
+    // Envoi au frontend avec le label textuel pour l'affichage ET l'id numérique pour le calcul
+    const daily = Array.from(weeklyMap.entries()).map(([id, valeur]) => ({ id, date: joursSemaine[id], valeur }));
+    const monthly = Array.from(monthlyMap.entries()).map(([id, valeur]) => ({ id, date: moisAnnee[id], valeur }));
+    const yearly = Array.from(yearlyMap.entries()).map(([id, valeur]) => ({ id, date: id.toString(), valeur }));
 
     return {
       storeName: store.name,
+      currency: store.currency,
       summary: {
         totalProducts: currentProductsVolume,
         totalValue: currentStockValue,
         totalRevenue: totalSalesRevenue,
         unitsSold: totalUnitsSold,
       },
-      weekly,
+      weekly: daily,
       monthly,
       yearly,
     };
