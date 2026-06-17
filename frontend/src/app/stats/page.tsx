@@ -214,12 +214,18 @@ export default function StatsPage() {
               <div className="text-3xl font-black font-mono tracking-tight">{stats?.summary?.totalRevenue?.toFixed(2) || '0.00'} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div>
             </CardContent>
           </Card>
-          <Card className="border border-slate-200 shadow-sm bg-white"><CardContent className="p-6 space-y-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-          Valeur du Stock Restant</span><div className="text-3xl font-black font-mono tracking-tight text-green-600">
-  {stats?.summary?.totalRevenue?.toFixed(2)} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div></CardContent></Card>
-          <Card className="border border-slate-200 shadow-sm bg-white"><CardContent className="p-6 space-y-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Volume e[...]
-  {stats?.summary?.totalValue?.toFixed(2)} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span>
-</div></CardContent></Card>
+          <Card className="border border-slate-200 shadow-sm bg-white">
+            <CardContent className="p-6 space-y-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Valeur du Stock Restant</span>
+              <div className="text-3xl font-black font-mono tracking-tight text-green-600">{stats?.summary?.totalRevenue?.toFixed(2) || '0.00'} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 shadow-sm bg-white">
+            <CardContent className="p-6 space-y-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Volume d'Inventaire</span>
+              <div className="text-3xl font-black font-mono tracking-tight text-amber-600">{stats?.summary?.totalValue?.toFixed(2) || '0.00'} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3 mb-8">
@@ -335,9 +341,9 @@ export default function StatsPage() {
           </Card>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6">
           {/* TABLEAU PANNEAU LATÉRAL DU DRILL-DOWN HISTORISÉ */}
-          <Card className="md:col-span-3 border border-slate-200 shadow-sm bg-white">
+          <Card className="border border-slate-200 shadow-sm bg-white">
             <CardHeader className="border-b border-slate-50 pb-4">
               <CardTitle className="text-base font-bold text-slate-900">Détails de la Période</CardTitle>
               <CardDescription>Articles expédiés en <span className="font-semibold text-gray-900">{selectedPeriodText}</span></CardDescription>
