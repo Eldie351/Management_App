@@ -69,3 +69,16 @@ model Sale {
   storeId     Int
   store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
+
+model ExchangeRate {
+  id            Int      @id @default(autoincrement())
+  fromCurrency  String   @db.VarChar(3)
+  toCurrency    String   @db.VarChar(3)
+  rate          Decimal  @db.Decimal(18, 8)
+  source        String   @default("OPENEXCHANGERATES") @db.VarChar(50)
+  lastUpdated   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([fromCurrency, toCurrency])
+}
