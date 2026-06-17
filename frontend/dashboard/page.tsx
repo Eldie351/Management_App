@@ -1,5 +1,5 @@
-import { Sidebar } from "@/components/Sidebar";
-import { DashboardCard } from "@/components/DashboardCard";
+import Sidebar from "@/components/Sidebar";
+import DashboardCard from "@/components/DashboardCard";
 
 export default function DashboardPage() {
   return (

@@ -14,35 +14,27 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // États pour la création
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreLocation, setNewStoreLocation] = useState('');
+  const [newStoreCurrency, setNewStoreCurrency] = useState('XOF');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const router = useRouter();
 
-  // Fonction pour charger les données
   const fetchProfileData = async () => {
     const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
+    if (!token) { router.push('/login'); return; }
 
     try {
-      const res = await fetch('http://localhost:3000/auth/profil', {
+      const res = await fetch('http://localhost:3001/stores', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-
-      if (!res.ok) throw new Error('Votre session a expiré. Veuillez vous reconnecter.');
+      if (!res.ok) throw new Error('Session expirée.');
       const data = await res.json();
-      setProfile(data);
+      setProfile({ stores: data });
       setLoading(false);
     } catch (err: any) {
       setError(err.message);
@@ -51,11 +43,8 @@ export default function DashboardPage() {
     }
   };
 
-  useEffect(() => {
-    fetchProfileData();
-  }, [router]);
+  useEffect(() => { fetchProfileData(); }, [router]);
 
-  // Fonction : Créer un magasin
   const handleCreateStore = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -63,20 +52,25 @@ export default function DashboardPage() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const response = await fetch('http://localhost:3000/stores', {
+      const response = await fetch('http://localhost:3001/stores', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: newStoreName, location: newStoreLocation }),
+        body: JSON.stringify({ 
+          name: newStoreName, 
+          location: newStoreLocation, 
+          currency: newStoreCurrency 
+        }),
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Impossible de créer le magasin');
+      if (!response.ok) throw new Error(data.message || 'Échec de création');
 
       setNewStoreName('');
       setNewStoreLocation('');
+      setNewStoreCurrency('XOF');
       setIsModalOpen(false);
       fetchProfileData();
     } catch (err: any) {
@@ -86,41 +80,19 @@ export default function DashboardPage() {
     }
   };
 
-  // ==========================================
-  // AJOUT : ACTION DE SUPPRESSION D'UN MAGASIN
-  // ==========================================
   const handleDeleteStore = async (e: React.MouseEvent, storeId: number, storeName: string) => {
-    // Évite d'ouvrir la page des produits lors du clic sur le bouton supprimer
-    e.stopPropagation(); 
-
-    const confirmation = confirm(`⚠️ Êtes-vous sûr de vouloir supprimer définitivement l'entrepôt "${storeName}" ? Cela effacera TOUS les produits stockés à l'intérieur.`);
-    if (!confirmation) return;
-
+    e.stopPropagation();
+    if (!confirm(`Supprimer l'entrepôt "${storeName}" et ses produits ?`)) return;
     const token = localStorage.getItem('access_token');
-
     try {
-      const res = await fetch(`http://localhost:3000/stores/${storeId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Échec de la suppression.');
-      }
-
-      // Recharger l'affichage immédiatement
+      const res = await fetch(`http://localhost:3001/stores/${storeId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Échec suppression.');
       fetchProfileData();
-    } catch (err: any) {
-      alert(err.message);
-    }
+    } catch (err: any) { alert(err.message); }
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center text-lg">Chargement de vos espaces de stockage...</div>;
-  if (error) return <div className="flex h-screen items-center justify-center text-red-500 font-semibold">{error}</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center text-lg">Chargement...</div>;
+  if (error) return <div className="flex h-screen items-center justify-center text-red-500">{error}</div>;
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -129,8 +101,7 @@ export default function DashboardPage() {
       <main className="flex-1 overflow-y-auto p-8">
         <div className="flex items-center justify-between border-b pb-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Bonjour, {profile?.name} 👋</h1>
-            <p className="text-muted-foreground mt-1">Rôle : {profile?.role}</p>
+            <h1 className="text-3xl font-bold tracking-tight">Bonjour 👋</h1>
           </div>
           <div className="space-x-4">
             <Button variant="outline" onClick={() => router.push('/products')}>Gérer les Produits</Button>
@@ -139,18 +110,11 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-3 mb-8">
-          <DashboardCard 
-            title="Total Entrepôts" 
-            value={profile?.stores?.length || 0} 
-            description="Espaces physiques de stockage enregistrés"
-          />
+          <DashboardCard title="Total Entrepôts" value={profile?.stores?.length || 0} description="Espaces de stockage enregistrés" />
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Vos Espaces de Stockage</CardTitle>
-            <CardDescription>Sélectionnez un entrepôt pour inspecter ou modifier ses marchandises associées.</CardDescription>
-          </CardHeader>
+          <CardHeader><CardTitle>Vos Espaces de Stockage</CardTitle></CardHeader>
           <CardContent>
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {profile?.stores?.map((store: any) => (
@@ -162,59 +126,60 @@ export default function DashboardPage() {
                   <div>
                     <div className="flex justify-between items-start">
                       <h3 className="font-semibold text-lg group-hover:text-blue-600 transition-colors pr-6">{store.name}</h3>
-                      
-                      {/* BOUTON DE SUPPRESSION GRAPHIQUE */}
-                      <button
-                        onClick={(e) => handleDeleteStore(e, store.id, store.name)}
-                        className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors absolute top-4 right-4"
-                        title="Supprimer cet entrepôt"
-                      >
-                        🗑️
-                      </button>
+                      <button onClick={(e) => handleDeleteStore(e, store.id, store.name)} className="text-gray-400 hover:text-red-500 absolute top-4 right-4">🗑️</button>
                     </div>
                     <p className="text-sm text-gray-500 mt-1">📍 {store.location || 'Emplacement non spécifié'}</p>
                   </div>
                   <div className="mt-6 pt-4 border-t flex justify-between items-center text-sm">
-                    <span className="text-gray-400">ID: #{store.id}</span>
+                    <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 p-1 px-2 rounded">
+                      💰 Devise : {store.currency}
+                    </span>
                     <span className="font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
                       {store._count?.products || 0} produits
                     </span>
                   </div>
                 </div>
               ))}
-
-              {profile?.stores?.length === 0 && (
-                <div className="col-span-3 text-center py-12 text-gray-400 border border-dashed rounded-xl bg-white">
-                  Vous ne possédez aucun entrepôt pour le moment.
-                  <div className="mt-4">
-                    <Button onClick={() => setIsModalOpen(true)}>Créer votre premier entrepôt</Button>
-                  </div>
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
       </main>
 
-      {/* MODAL CRÉATION */}
+      {/* POPUP DE CRÉATION AVEC CHOIX DE MONNAIE */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <Card className="w-[450px] shadow-2xl bg-white">
-            <CardHeader>
-              <CardTitle>Créer un nouvel espace de stockage</CardTitle>
-            </CardHeader>
+          <Card className="w-[450px] shadow-2xl bg-white animate-in fade-in duration-200">
+            <CardHeader><CardTitle>Créer un nouvel espace de stockage</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={handleCreateStore} className="space-y-4">
                 {formError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{formError}</p>}
                 <div className="space-y-2">
                   <Label htmlFor="storeName">Nom de l'entrepôt *</Label>
-                  <Input id="storeName" placeholder="Ex: Entrepôt Principal Paris" value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} required />
+                  <Input id="storeName" placeholder="Ex: Entrepôt Paris" value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="storeLocation">Adresse / Emplacement</Label>
-                  <Input id="storeLocation" placeholder="Ex: 12 rue de la Logistique, Paris" value={newStoreLocation} onChange={(e) => setNewStoreLocation(e.target.value)} />
+                  <Input id="storeLocation" placeholder="Ex: Dakar, Sénégal" value={newStoreLocation} onChange={(e) => setNewStoreLocation(e.target.value)} />
                 </div>
-                <div className="flex justify-end space-x-3 pt-4 border-t">
+
+                <div className="space-y-2">
+                  <Label htmlFor="storeCurrency">Devise d'exploitation *</Label>
+                  <select
+                    id="storeCurrency"
+                    value={newStoreCurrency}
+                    onChange={(e) => setNewStoreCurrency(e.target.value)}
+                    className="w-full p-2 border rounded-lg bg-white shadow-sm font-semibold outline-none text-sm text-gray-700 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="XOF">Franc CFA (XOF)</option>
+                    <option value="EUR">Euro (EUR)</option>
+                    <option value="USD">Dollar (USD)</option>
+                    <option value="GBP">Livre Sterling (GBP)</option>
+                    <option value="NGN">Naira (NGN)</option>
+                    <option value="GHS">Cedi du Ghana (GHS)</option>
+                  </select>
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
                   <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Annuler</Button>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Création...' : 'Confirmer'}</Button>
                 </div>

@@ -18,6 +18,7 @@ function ProductsContent() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // États pour le formulaire de création
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,6 +30,13 @@ function ProductsContent() {
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // États pour le formulaire de recharge
+  const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [rechargeQty, setRechargeQty] = useState<number>(0);
+  const [rechargeError, setRechargeError] = useState('');
+  const [isRecharging, setIsRecharging] = useState(false);
+
   // Fonction pour charger les produits
   const fetchProducts = async () => {
     const token = localStorage.getItem('access_token');
@@ -39,8 +47,8 @@ function ProductsContent() {
 
     try {
       const url = storeId 
-        ? `http://localhost:3000/products/store/${storeId}`
-        : `http://localhost:3000/products/user/all`;
+        ? `http://localhost:3001/products/store/${storeId}`
+        : `http://localhost:3001/products/user/all`;
 
       const res = await fetch(url, {
         method: 'GET',
@@ -64,6 +72,17 @@ function ProductsContent() {
     fetchProducts();
   }, [storeId, router]);
 
+  // Filtrage dynamique en temps réel
+  const filteredProducts = products.filter((product) => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    return (
+      product.name?.toLowerCase().includes(query) ||
+      product.sku?.toLowerCase().includes(query) ||
+      product.description?.toLowerCase().includes(query)
+    );
+  });
+
   // Soumission du nouveau produit
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +91,7 @@ function ProductsContent() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch('http://localhost:3000/products', {
+      const res = await fetch('http://localhost:3001/products', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -105,13 +124,46 @@ function ProductsContent() {
     }
   };
 
+  // Action : Envoyer la recharge de stock
+  const handleProcessRecharge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRechargeError('');
+    setIsRecharging(true);
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const res = await fetch(`http://localhost:3001/products/${selectedProduct.id}/recharge`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ quantity: Number(rechargeQty) }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Échec de la recharge.');
+      }
+
+      setIsRechargeModalOpen(false);
+      setRechargeQty(0);
+      setSelectedProduct(null);
+      fetchProducts();
+    } catch (err: any) {
+      setRechargeError(err.message);
+    } finally {
+      setIsRecharging(false);
+    }
+  };
+
   // Suppression d'un produit
   const handleDeleteProduct = async (id: number) => {
     if (!confirm('Voulez-vous vraiment retirer ce produit du stock ?')) return;
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch(`http://localhost:3000/products/${id}`, {
+      const res = await fetch(`http://localhost:3001/products/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -148,10 +200,21 @@ function ProductsContent() {
           </div>
         </div>
 
+        {/* Barre de recherche */}
+        <div className="mb-6 max-w-md">
+          <Input
+            type="text"
+            placeholder="🔍 Rechercher par désignation, description ou référence SKU..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white shadow-sm h-10 border-gray-200 focus:border-blue-500"
+          />
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle>Inventaire Logistique</CardTitle>
-            <CardDescription>Suivi précis des volumes, références, stocks de départ et dates d'entrée.</CardDescription>
+            <CardDescription>Suivi précis des volumes, références, stocks de départ recalculés et dates d'entrée.</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
@@ -164,11 +227,11 @@ function ProductsContent() {
                   <TableHead className="text-center">Stock Actuel</TableHead>
                   <TableHead className="text-center">Date d'Entrée</TableHead>
                   <TableHead className="text-right">Prix Unitaire</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.map((product) => (
+                {filteredProducts.map((product) => (
                   <TableRow key={product.id}>
                     <TableCell className="font-medium">
                       <div>{product.name}</div>
@@ -183,7 +246,7 @@ function ProductsContent() {
                     )}
 
                     <TableCell className="text-center text-gray-500 font-medium">
-                      {product.initialStock ?? product.quantity} u.
+                      {product.initialStock} u.
                     </TableCell>
 
                     <TableCell className="text-center font-semibold">
@@ -200,8 +263,20 @@ function ProductsContent() {
                       }) : 'N/A'}
                     </TableCell>
 
-                    <TableCell className="text-right font-mono">{Number(product.price).toFixed(2)} €</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right font-mono font-bold">
+                      {Number(product.price).toFixed(2)} <span className="text-xs text-blue-600 font-sans uppercase">{product.currency || 'XOF'}</span>
+                    </TableCell>
+                    <TableCell className="text-right space-x-2">
+                      <Button 
+                                              size="sm" 
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                        onClick={() => {
+                          setSelectedProduct(product);
+                          setIsRechargeModalOpen(true);
+                        }}
+                      >
+                        Recharger
+                      </Button>
                       <Button variant="destructive" size="sm" onClick={() => handleDeleteProduct(product.id)}>
                         Supprimer
                       </Button>
@@ -209,10 +284,10 @@ function ProductsContent() {
                   </TableRow>
                 ))}
 
-                {products.length === 0 && (
+                {filteredProducts.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={storeId ? 7 : 8} className="text-center py-8 text-gray-400">
-                      Aucun produit enregistré.
+                      Aucun produit ne correspond à votre recherche.
                     </TableCell>
                   </TableRow>
                 )}
@@ -222,13 +297,12 @@ function ProductsContent() {
         </Card>
       </main>
 
-      {/* POPUP FORMULAIRE PRODUIT */}
+      {/* POPUP DE CRÉATION DE PRODUIT */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
           <Card className="w-[500px] shadow-2xl bg-white animate-in fade-in zoom-in duration-200">
             <CardHeader>
               <CardTitle>Ajouter un nouveau produit</CardTitle>
-              <CardDescription>Remplissez la fiche produit pour l'injecter dans l'entrepôt.</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleCreateProduct} className="space-y-4">
@@ -243,10 +317,15 @@ function ProductsContent() {
                     <Input id="prodSku" placeholder="Ex: ASUS-123" value={sku} onChange={(e) => setSku(e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prodPrice">Prix Unitaire (€) *</Label>
-                    <Input id="prodPrice" type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(Number(e.target.value))} required />
+                    <Label htmlFor="prodPrice">Prix Unitaire *</Label>
+                    <div className="relative flex items-center">
+                      <Input id="prodPrice" type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(Number(e.target.value))} required className="pr-16" />
+                      <span className="absolute right-3 text-xs font-bold text-slate-400 uppercase">
+                        {products.length > 0 ? (products[0].currency || 'XOF') : 'XOF'}
+                      </span>
+                    </div>
                   </div>
-                                    <div className="space-y-2 col-span-2">
+                  <div className="space-y-2 col-span-2">
                     <Label htmlFor="prodQty">Quantité Initiale *</Label>
                     <Input id="prodQty" type="number" min="0" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} required />
                   </div>
@@ -257,9 +336,40 @@ function ProductsContent() {
                 </div>
                 <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
                   <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Annuler</Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? 'Insertion...' : 'Valider l’entrée'}
-                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>Valider l’entrée</Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* POPUP DE RECHARGE DE STOCK */}
+      {isRechargeModalOpen && selectedProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <Card className="w-[400px] shadow-2xl bg-white animate-in fade-in zoom-in duration-200">
+            <CardHeader>
+              <CardTitle>Réapprovisionnement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleProcessRecharge} className="space-y-4">
+                {rechargeError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{rechargeError}</p>}
+                
+                <div className="bg-gray-50 p-3 rounded-lg border text-sm space-y-1.5 mb-2">
+                  <div className="flex justify-between"><span className="text-gray-500">Stock actuel :</span> <span className="font-semibold">{selectedProduct.quantity} u.</span></div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="rechargeQtyInput">Quantité à ajouter</Label>
+                  <Input id="rechargeQtyInput" type="number" min="1" value={rechargeQty} onChange={(e) => setRechargeQty(Number(e.target.value))} required />
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
+                  <Button type="button" variant="outline" onClick={() => {
+                    setIsRechargeModalOpen(false);
+                    setSelectedProduct(null);
+                  }}>Annuler</Button>
+                  <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={isRecharging}>Confirmer</Button>
                 </div>
               </form>
             </CardContent>

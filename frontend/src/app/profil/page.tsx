@@ -23,7 +23,7 @@ export default function ProfilPage() {
     }
 
     try {
-      const res = await fetch('http://localhost:3000/auth/profil', {
+      const res = await fetch('http://localhost:3001/auth/profil', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -57,7 +57,7 @@ export default function ProfilPage() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch('http://localhost:3000/auth/compte', {
+      const res = await fetch('http://localhost:3001/auth/compte', {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

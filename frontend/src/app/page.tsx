@@ -1,135 +1,118 @@
-"use client";
+'use client';
 
-import { FormEvent, useState } from "react";
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { LayoutDashboard, Package, ShoppingCart, BarChart3 } from 'lucide-react';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3000";
-
-export default function Home() {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const endpoint = mode === 'login' ? '/auth/login' : '/auth/register';
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-    setMessage('');
-
-    const body = mode === 'login'
-      ? { email, password }
-      : { email, name, password };
-
-    try {
-      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.message || 'Request failed');
-      }
-
-      setMessage(`${mode === 'login' ? 'Logged in' : 'Registered'} successfully!`);
-      console.log('Backend response', result);
-    } catch (err: any) {
-      setError(err.message ?? 'Unexpected error');
-    } finally {
-      setLoading(false);
-    }
-  }
+export default function LandingPage() {
+  const router = useRouter();
 
   return (
-    <div className="min-h-screen bg-slate-50 py-16 px-4 text-slate-900">
-      <div className="mx-auto w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/50">
-        <h1 className="text-3xl font-semibold">Auth demo</h1>
-        <p className="mt-2 text-slate-600">
-          Use this form to test your backend at <code>{BACKEND_URL}</code>.
-        </p>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 flex flex-col justify-between">
+      {/* 1. EN-TÊTE (BARRE DE NAVIGATION) */}
+      <header className="w-full max-w-7xl mx-auto px-6 py-4 flex items-center justify-between border-b border-gray-200/60 bg-white/50 backdrop-blur-md sticky top-0 z-50">
+        <div className="flex items-center space-x-2">
+          <span className="text-2xl font-bold text-gray-900 tracking-tight">
+            Octo<span className="text-blue-600">Stock</span>
+          </span>
+        </div>
+        <div className="space-x-4">
+          <Button variant="ghost" onClick={() => router.push('/login')} className="font-medium">
+            Connexion
+          </Button>
+          <Button onClick={() => router.push('/register')} className="bg-blue-600 hover:bg-blue-700 font-medium">
+            Créer un compte
+          </Button>
+        </div>
+      </header>
 
-        <div className="mt-6 flex gap-2">
-          <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${mode === 'login' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
-            onClick={() => setMode('login')}
-            type="button"
-          >
-            Login
-          </button>
-          <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${mode === 'register' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
-            onClick={() => setMode('register')}
-            type="button"
-          >
-            Register
-          </button>
+      {/* 2. ZONE PRINCIPALE (HERO SECTION) */}
+      <main className="flex-1 flex flex-col items-center justify-center max-w-5xl mx-auto px-6 text-center py-16 md:py-24 space-y-8">
+        <div className="space-y-4">
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 tracking-wide uppercase">
+            Gestion de Stock Intelligente
+          </span>
+          <h1 className="text-4xl md:text-6xl font-extrabold text-gray-900 tracking-tight leading-tight max-w-4xl mx-auto">
+            Prenez le contrôle total de vos entrepôts et marchandises
+          </h1>
+          <p className="text-lg md:text-xl text-gray-500 max-w-2xl mx-auto font-normal">
+            Optimisez votre logistique en temps réel. Suivez vos stocks, enregistrez vos ventes et analysez vos performances financières depuis une interface unique.
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Email</label>
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              required
-              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-            />
-          </div>
-
-          {mode === 'register' && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Name</label>
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                type="text"
-                required
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Password</label>
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              required
-              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        <div className="flex flex-col sm:flex-row justify-center items-center gap-4 w-full sm:w-auto">
+          <Button 
+            size="lg" 
+            onClick={() => router.push('/login')} 
+            className="w-full sm:w-52 h-12 text-base font-semibold bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-100 transition-all"
           >
-            {loading ? 'Submitting...' : mode === 'login' ? 'Login' : 'Register'}
-          </button>
-        </form>
-
-        {message && <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{message}</p>}
-        {error && <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-900">{error}</p>}
-
-        <div className="mt-6 rounded-2xl bg-slate-100 p-4 text-sm text-slate-600">
-          <p className="font-semibold">Example request</p>
-          <pre className="mt-3 overflow-x-auto text-xs text-slate-700">
-            {`fetch('${BACKEND_URL}${endpoint}', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(${mode === 'login' ? '{ email, password }' : '{ email, name, password }'}),
-});`}
-          </pre>
+            Démarrer gratuitement
+          </Button>
+          <Button 
+            size="lg" 
+            variant="outline"
+            onClick={() => router.push('/login')} 
+            className="w-full sm:w-52 h-12 text-base font-medium border-gray-200 bg-white shadow-sm"
+          >
+            Découvrir l'interface
+          </Button>
         </div>
-      </div>
+
+        {/* GRILLE DES FONCTIONNALITÉS CLÉS */}
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 w-full pt-12">
+          <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
+              <div className="p-3 bg-blue-50 rounded-xl text-blue-600">
+                <LayoutDashboard size={24} />
+              </div>
+              <h3 className="font-bold text-gray-800">Multi-Entrepôts</h3>
+              <p className="text-xs text-gray-400 leading-relaxed">Gérez plusieurs espaces de stockage et points de vente physiques en simultané.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
+              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600">
+                <Package size={24} />
+              </div>
+              <h3 className="font-bold text-gray-800">Suivi Dynamique</h3>
+              <p className="text-xs text-gray-400 leading-relaxed">Formule automatisée calculant vos stocks de départ par rapport à vos réapprovisionnements.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
+              <div className="p-3 bg-amber-50 rounded-xl text-amber-600">
+                <ShoppingCart size={24} />
+              </div>
+              <h3 className="font-bold text-gray-800">Registre des Ventes</h3>
+              <p className="text-xs text-gray-400 leading-relaxed">Déduisez du stock et historisez durablement vos flux de commandes dans PostgreSQL.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
+            <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
+              <div className="p-3 bg-purple-50 rounded-xl text-purple-600">
+                <BarChart3 size={24} />
+              </div>
+              <h3 className="font-bold text-gray-800">Analyses Réelles</h3>
+              <p className="text-xs text-gray-400 leading-relaxed">Visualisez graphiquement votre Chiffre d'Affaires cumulé par jour, mois et année.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+
+      {/* 3. PIED DE PAGE */}
+      <footer className="w-full border-t border-gray-200/60 py-6 bg-white">
+        <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between text-sm text-gray-400 gap-4">
+          <p>© 2026 OctoStock. Tous droits réservés.</p>
+          <div className="flex space-x-6">
+            <span className="hover:text-gray-600 cursor-pointer">Conditions</span>
+            <span className="hover:text-gray-600 cursor-pointer">Confidentialité</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
