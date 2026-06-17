@@ -6,13 +6,17 @@ import Sidebar from '@/components/Sidebar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { BarChart3, TrendingUp, Calendar, Layers } from 'lucide-react';
+import { BarChart3, TrendingUp, Calendar, Layers, PieChart } from 'lucide-react';
+import { PieChart as RechartsChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts';
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#6366f1'];
 
 export default function StatsPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
   const [stats, setStats] = useState<any>(null);
+  const [allStoresData, setAllStoresData] = useState<any[]>([]);
   const [rawSales, setRawSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -38,11 +42,42 @@ export default function StatsPage() {
         setProfile(data);
         if (data.stores?.length > 0) {
           setSelectedStoreId(data.stores[0].id.toString());
+          fetchAllStoresStats(data.stores, token);
         }
         setLoading(false);
       })
       .catch(() => router.push('/login'));
   }, [router]);
+
+  // Fetch stats for all stores to display in the circular diagram
+  const fetchAllStoresStats = async (stores: any[], token: string) => {
+    try {
+      const storesStatsPromises = stores.map((store) =>
+        fetch(`http://localhost:3001/stores/${store.id}/stats`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+          .then((res) => res.json())
+          .then((data) => ({
+            name: store.name,
+            value: Math.round(data?.summary?.totalRevenue || 0),
+            revenue: data?.summary?.totalRevenue || 0,
+            currency: data?.currency || 'XOF',
+          }))
+          .catch(() => ({
+            name: store.name,
+            value: 0,
+            revenue: 0,
+            currency: 'XOF',
+          }))
+      );
+
+      const storesStats = await Promise.all(storesStatsPromises);
+      setAllStoresData(storesStats.filter((s) => s.value > 0));
+    } catch (err) {
+      console.error('Error fetching all stores stats:', err);
+    }
+  };
 
   useEffect(() => {
     if (!selectedStoreId) return;
@@ -126,6 +161,24 @@ export default function StatsPage() {
 
   const detailedProducts = getProductDetailsForSelectedPeriod();
 
+  // Custom tooltip for the pie chart
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-slate-200">
+          <p className="font-semibold text-slate-900">{payload[0].name}</p>
+          <p className="text-sm text-blue-600 font-mono">
+            {payload[0].payload.revenue.toFixed(2)} {payload[0].payload.currency}
+          </p>
+          <p className="text-xs text-slate-500">
+            {((payload[0].value / allStoresData.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
       <Sidebar />
@@ -164,12 +217,70 @@ export default function StatsPage() {
           <Card className="border border-slate-200 shadow-sm bg-white"><CardContent className="p-6 space-y-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
           Valeur du Stock Restant</span><div className="text-3xl font-black font-mono tracking-tight text-green-600">
   {stats?.summary?.totalRevenue?.toFixed(2)} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div></CardContent></Card>
-          <Card className="border border-slate-200 shadow-sm bg-white"><CardContent className="p-6 space-y-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Volume en Rayon</span><div className="text-3xl font-black font-mono tracking-tight text-slate-800">
+          <Card className="border border-slate-200 shadow-sm bg-white"><CardContent className="p-6 space-y-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Volume e[...]
   {stats?.summary?.totalValue?.toFixed(2)} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span>
 </div></CardContent></Card>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-3 mb-8">
+          {/* Circular Diagram - All Stores Stats */}
+          <Card className="border border-slate-200 shadow-sm bg-white md:col-span-1">
+            <CardHeader className="border-b border-slate-50 pb-4">
+              <div className="flex items-center space-x-2">
+                <PieChart className="text-indigo-600" size={20} />
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-900">Performance des Magasins</CardTitle>
+                  <CardDescription>Distribution du chiffre d'affaires</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6 flex justify-center">
+              {allStoresData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <RechartsChart>
+                    <Pie
+                      data={allStoresData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      labelLine={false}
+                    >
+                      {allStoresData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </RechartsChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-64 text-slate-400">
+                  <p className="text-sm">Pas de données disponibles</p>
+                </div>
+              )}
+            </CardContent>
+            <CardContent className="border-t border-slate-50 pt-4">
+              <div className="space-y-2">
+                {allStoresData.map((store, index) => (
+                  <div key={index} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                      />
+                      <span className="text-slate-700 font-medium">{store.name}</span>
+                    </div>
+                    <span className="font-semibold text-slate-900">{store.revenue.toFixed(2)} {store.currency}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bar Chart */}
           <Card className="md:col-span-2 border border-slate-200 shadow-sm bg-white flex flex-col justify-between">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6 border-b border-slate-50">
               <div>
@@ -201,9 +312,9 @@ export default function StatsPage() {
                       setSelectedPeriodId(item.id); // FIXATION DE L'INDEX NUMÉRIQUE AU CLIC
                     }} 
                     className="flex flex-col items-center flex-1 group h-full justify-end cursor-pointer relative z-10">
-                                        <span className={`text-[10px] font-mono font-bold mb-2 p-1 px-1.5 rounded transition-all duration-200 shadow-sm ${isSelected ? 'opacity-100 bg-slate-                                              950 text-blue-400 scale-105' : 'opacity-0 group-hover:opacity-100 bg-white border text-slate-600'}`}>
-                                              {item.valeur.toFixed(0)} {stats?.currency || 'XOF'}
-                                        </span>
+                      <span className={`text-[10px] font-mono font-bold mb-2 p-1 px-1.5 rounded transition-all duration-200 shadow-sm ${isSelected ? 'opacity-100 bg-slate-200 text-slate-900' : 'opacity-0'}`}>
+                        {item.valeur.toFixed(0)} {stats?.currency || 'XOF'}
+                      </span>
                     <div 
                       className={`w-10 rounded-t-xl transition-all duration-300 ${
                         isSelected 
@@ -222,9 +333,11 @@ export default function StatsPage() {
               })}
             </CardContent>
           </Card>
+        </div>
 
+        <div className="grid gap-6 md:grid-cols-3">
           {/* TABLEAU PANNEAU LATÉRAL DU DRILL-DOWN HISTORISÉ */}
-          <Card className="border border-slate-200 shadow-sm bg-white">
+          <Card className="md:col-span-3 border border-slate-200 shadow-sm bg-white">
             <CardHeader className="border-b border-slate-50 pb-4">
               <CardTitle className="text-base font-bold text-slate-900">Détails de la Période</CardTitle>
               <CardDescription>Articles expédiés en <span className="font-semibold text-gray-900">{selectedPeriodText}</span></CardDescription>
@@ -266,4 +379,3 @@ export default function StatsPage() {
     </div>
   );
 }
-
