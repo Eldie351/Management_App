@@ -108,6 +108,12 @@ export default function LoginPage() {
               {isSubmitting ? 'Connexion en cours...' : 'Se connecter'}
             </Button>
 
+            <div className="text-center text-sm">
+              <Link href="/forgot-password" className="text-blue-600 hover:underline font-medium">
+                Mot de passe oublié ?
+              </Link>
+            </div>
+
             <div className="text-center text-sm text-gray-500 pt-2 border-t mt-4">
               Pas encore de compte ?{' '}
               <Link href="/register" className="text-blue-600 hover:underline font-medium">

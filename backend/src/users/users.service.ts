@@ -84,6 +84,47 @@ async findProfileWithStores(id: number) {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
+  async setResetToken(id: number, token: string, expiresAt: Date) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { resetToken: token, resetTokenExp: expiresAt },
+    });
+  }
+
+  async findByResetToken(token: string) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    return this.prisma.user.findFirst({ where: { resetToken: token } });
+  }
+
+  async updatePassword(id: number, hashedPassword: string) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { password: hashedPassword },
+    });
+  }
+
+  async clearResetToken(id: number) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { resetToken: null, resetTokenExp: null },
+    });
+  }
+
   async delete(id: number): Promise<void> {
     if (!this.prisma) {
       throw new InternalServerErrorException('PrismaService not available');

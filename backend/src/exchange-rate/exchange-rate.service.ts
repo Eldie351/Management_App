@@ -6,7 +6,16 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ExchangeRateService {
   private readonly logger = new Logger(ExchangeRateService.name);
   private readonly apiKey: string;
-  private readonly apiUrl = 'https://openexchangerates.org/api/latest';
+  private readonly apiUrls = [
+    'https://openexchangerates.org/api/latest',
+    'https://api.exchangerate.host/latest',
+  ];
+  private readonly fallbackRates: Record<string, number> = {
+    XOF: 600,
+    EUR: 0.92,
+    GBP: 0.79,
+    NGN: 1600,
+  };
 
   constructor(
     private prisma: PrismaService,
@@ -20,25 +29,38 @@ export class ExchangeRateService {
    */
   async fetchAndCacheExchangeRates(): Promise<void> {
     try {
-      this.logger.log('Fetching exchange rates from OpenExchangeRates API...');
+      this.logger.log('Fetching exchange rates from the configured API...');
 
-      // Fetch rates for all supported currencies relative to USD
-      const response = await fetch(
-        `${this.apiUrl}?app_id=${this.apiKey}&base=USD&symbols=XOF,EUR,GBP,NGN`,
-      );
+      let rates: Record<string, number> | null = null;
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText}`);
+      for (const baseUrl of this.apiUrls) {
+        try {
+          const url = baseUrl.includes('openexchangerates')
+            ? `${baseUrl}?app_id=${this.apiKey}&base=USD&symbols=XOF,EUR,GBP,NGN`
+            : `${baseUrl}?base=USD&symbols=XOF,EUR,GBP,NGN`;
+
+          const response = await fetch(url);
+          if (!response.ok) {
+            continue;
+          }
+
+          const data = (await response.json()) as any;
+          if (data?.rates) {
+            rates = data.rates as Record<string, number>;
+            break;
+          }
+        } catch (error) {
+          this.logger.warn(`Exchange-rate provider failed for ${baseUrl}: ${String(error)}`);
+        }
       }
 
-      const data = (await response.json()) as any;
-
-      if (!data.rates) {
-        throw new Error('No rates found in API response');
+      if (!rates) {
+        this.logger.warn('Using fallback exchange rates because the external API is unavailable.');
+        rates = this.fallbackRates;
       }
 
       // Store rates in database
-      for (const [targetCurrency, rate] of Object.entries(data.rates)) {
+      for (const [targetCurrency, rate] of Object.entries(rates)) {
         // USD to target currency
         await this.prisma.exchangeRate.upsert({
           where: {
@@ -138,8 +160,7 @@ export class ExchangeRateService {
 
       this.logger.log('✅ Exchange rates cached successfully');
     } catch (error) {
-      this.logger.error('Failed to fetch exchange rates:', error);
-      throw error;
+      this.logger.warn('Using fallback exchange rates because the update failed.', error);
     }
   }
 
