@@ -74,7 +74,7 @@ model ExchangeRate {
   id            Int      @id @default(autoincrement())
   fromCurrency  String   @db.VarChar(3)
   toCurrency    String   @db.VarChar(3)
-  rate          String
+  rate          Float
   source        String   @default("OPENEXCHANGERATES") @db.VarChar(50)
   lastUpdated   DateTime @default(now())
   createdAt     DateTime @default(now())

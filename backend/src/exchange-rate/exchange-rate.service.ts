@@ -70,13 +70,13 @@ export class ExchangeRateService {
             },
           },
           update: {
-            rate: parseFloat(rate as any).toString(),
+            rate: parseFloat(rate as any),
             lastUpdated: new Date(),
           },
           create: {
             fromCurrency: 'USD',
             toCurrency: targetCurrency as string,
-            rate: parseFloat(rate as any).toString(),
+            rate: parseFloat(rate as any),
             source: 'OPENEXCHANGERATES',
           },
         });
@@ -91,13 +91,13 @@ export class ExchangeRateService {
             },
           },
           update: {
-            rate: reverseRate.toString(),
+            rate: reverseRate,
             lastUpdated: new Date(),
           },
           create: {
             fromCurrency: targetCurrency as string,
             toCurrency: 'USD',
-            rate: reverseRate.toString(),
+            rate: reverseRate,
             source: 'OPENEXCHANGERATES',
           },
         });
@@ -114,7 +114,7 @@ export class ExchangeRateService {
           const rate2 = await this.getExchangeRateFromDB('USD', toCurr);
 
           if (rate1 && rate2) {
-            const crossRate = (parseFloat(rate2) / parseFloat(rate1)).toString();
+            const crossRate = rate2 / rate1;
 
             await this.prisma.exchangeRate.upsert({
               where: {
@@ -135,7 +135,7 @@ export class ExchangeRateService {
               },
             });
 
-            const reverseRate = (1 / parseFloat(crossRate)).toString();
+            const reverseRate = 1 / crossRate;
             await this.prisma.exchangeRate.upsert({
               where: {
                 fromCurrency_toCurrency: {
@@ -170,7 +170,7 @@ export class ExchangeRateService {
   private async getExchangeRateFromDB(
     from: string,
     to: string,
-  ): Promise<string | null> {
+  ): Promise<number | null> {
     const rate = await this.prisma.exchangeRate.findUnique({
       where: {
         fromCurrency_toCurrency: {
