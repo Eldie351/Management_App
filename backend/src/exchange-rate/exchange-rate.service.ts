@@ -158,7 +158,7 @@ export class ExchangeRateService {
         },
       },
     });
-    return rate?.rate || null;
+    return rate?.rate ? rate.rate.toString() : null;
   }
 
   /**
@@ -192,7 +192,7 @@ export class ExchangeRateService {
       );
     }
 
-    const rate = parseFloat(exchangeRate.rate);
+    const rate = parseFloat(exchangeRate.rate.toString());
     const convertedAmount = amount * rate;
 
     return {

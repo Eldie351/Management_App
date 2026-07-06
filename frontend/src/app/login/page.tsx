@@ -26,10 +26,14 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const data = await response.json();
+
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.message || 'Identifiants invalides');
+        const message = Array.isArray(data?.message)
+          ? data.message.join(' ')
+          : data?.message || 'Identifiants invalides';
+        throw new Error(message);
       }
 
       // Sauvegarde automatique du jeton de session

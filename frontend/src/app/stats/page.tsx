@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
@@ -30,17 +31,19 @@ export default function StatsPage() {
   const fetchExchangeRates = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/exchange-rates');
-      const rates = await response.json();
-      
+      const payload = await response.json();
+
+      const ratesArray = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
       const ratesMap: any = {};
-      rates.forEach((rate: any) => {
+
+      ratesArray.forEach((rate: any) => {
         const key = `${rate.fromCurrency}_${rate.toCurrency}`;
         ratesMap[key] = rate.rate;
       });
-      
+
       setExchangeRates(ratesMap);
-      if (rates.length > 0) {
-        setLastExchangeUpdate(new Date(rates[0].lastUpdated).toLocaleString());
+      if (ratesArray.length > 0) {
+        setLastExchangeUpdate(new Date(ratesArray[0].lastUpdated).toLocaleString());
       }
     } catch (error) {
       console.error('Failed to fetch exchange rates:', error);
