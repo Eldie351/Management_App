@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { Decimal } from '@prisma/client/runtime/library';
 
 @Injectable()
 export class ExchangeRateService {
@@ -49,13 +48,13 @@ export class ExchangeRateService {
             },
           },
           update: {
-            rate: new Decimal(rate as number),
+            rate: parseFloat(rate as any).toString(),
             lastUpdated: new Date(),
           },
           create: {
             fromCurrency: 'USD',
             toCurrency: targetCurrency as string,
-            rate: new Decimal(rate as number),
+            rate: parseFloat(rate as any).toString(),
             source: 'OPENEXCHANGERATES',
           },
         });
@@ -70,13 +69,13 @@ export class ExchangeRateService {
             },
           },
           update: {
-            rate: new Decimal(reverseRate),
+            rate: reverseRate.toString(),
             lastUpdated: new Date(),
           },
           create: {
             fromCurrency: targetCurrency as string,
             toCurrency: 'USD',
-            rate: new Decimal(reverseRate),
+            rate: reverseRate.toString(),
             source: 'OPENEXCHANGERATES',
           },
         });
@@ -93,7 +92,7 @@ export class ExchangeRateService {
           const rate2 = await this.getExchangeRateFromDB('USD', toCurr);
 
           if (rate1 && rate2) {
-            const crossRate = new Decimal(rate2).dividedBy(new Decimal(rate1));
+            const crossRate = (parseFloat(rate2) / parseFloat(rate1)).toString();
 
             await this.prisma.exchangeRate.upsert({
               where: {
@@ -114,7 +113,7 @@ export class ExchangeRateService {
               },
             });
 
-            const reverseRate = new Decimal(1).dividedBy(crossRate);
+            const reverseRate = (1 / parseFloat(crossRate)).toString();
             await this.prisma.exchangeRate.upsert({
               where: {
                 fromCurrency_toCurrency: {
@@ -150,7 +149,7 @@ export class ExchangeRateService {
   private async getExchangeRateFromDB(
     from: string,
     to: string,
-  ): Promise<Decimal | null> {
+  ): Promise<string | null> {
     const rate = await this.prisma.exchangeRate.findUnique({
       where: {
         fromCurrency_toCurrency: {
@@ -193,13 +192,12 @@ export class ExchangeRateService {
       );
     }
 
-    const convertedAmount = new Decimal(amount)
-      .times(exchangeRate.rate)
-      .toNumber();
+    const rate = parseFloat(exchangeRate.rate);
+    const convertedAmount = amount * rate;
 
     return {
       convertedAmount,
-      rate: exchangeRate.rate.toNumber(),
+      rate,
       lastUpdated: exchangeRate.lastUpdated,
     };
   }
