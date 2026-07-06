@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
@@ -10,23 +8,63 @@ import { BarChart3, TrendingUp, Calendar, Layers, PieChart } from 'lucide-react'
 import { PieChart as RechartsChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#6366f1'];
+const SUPPORTED_CURRENCIES = ['XOF', 'EUR', 'USD', 'GBP', 'NGN'];
 
 export default function StatsPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('XOF');
   const [stats, setStats] = useState<any>(null);
   const [allStoresData, setAllStoresData] = useState<any[]>([]);
   const [rawSales, setRawSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exchangeRates, setExchangeRates] = useState<any>({});
+  const [lastExchangeUpdate, setLastExchangeUpdate] = useState<string>('');
 
   const [timeframe, setTimeframe] = useState<'week' | 'month' | 'year'>('week');
-  
-  // ÉTATS CORRIGÉS : On mémorise à la fois le libellé textuel pour le titre et l'identifiant pour le filtrage
   const [selectedPeriodText, setSelectedPeriodText] = useState<string>('');
   const [selectedPeriodId, setSelectedPeriodId] = useState<number>(0);
 
+  // Fetch exchange rates
+  const fetchExchangeRates = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/exchange-rates');
+      const rates = await response.json();
+      
+      const ratesMap: any = {};
+      rates.forEach((rate: any) => {
+        const key = `${rate.fromCurrency}_${rate.toCurrency}`;
+        ratesMap[key] = rate.rate;
+      });
+      
+      setExchangeRates(ratesMap);
+      if (rates.length > 0) {
+        setLastExchangeUpdate(new Date(rates[0].lastUpdated).toLocaleString());
+      }
+    } catch (error) {
+      console.error('Failed to fetch exchange rates:', error);
+    }
+  };
+
+  // Convert amount based on store currency and selected currency
+  const convertAmount = (amount: number, fromCurrency: string, toCurrency: string): number => {
+    if (fromCurrency === toCurrency) return amount;
+    
+    const rateKey = `${fromCurrency}_${toCurrency}`;
+    const rate = exchangeRates[rateKey];
+    
+    if (!rate) {
+      console.warn(`No exchange rate found for ${fromCurrency} to ${toCurrency}`);
+      return amount;
+    }
+    
+    return amount * parseFloat(rate);
+  };
+
   useEffect(() => {
+    fetchExchangeRates();
+    
     const token = localStorage.getItem('access_token');
     if (!token) {
       router.push('/login');
@@ -49,7 +87,6 @@ export default function StatsPage() {
       .catch(() => router.push('/login'));
   }, [router]);
 
-  // Fetch stats for all stores to display in the circular diagram
   const fetchAllStoresStats = async (stores: any[], token: string) => {
     try {
       const storesStatsPromises = stores.map((store) =>
@@ -58,17 +95,23 @@ export default function StatsPage() {
           headers: { 'Authorization': `Bearer ${token}` },
         })
           .then((res) => res.json())
-          .then((data) => ({
-            name: store.name,
-            value: Math.round(data?.summary?.totalRevenue || 0),
-            revenue: data?.summary?.totalRevenue || 0,
-            currency: data?.currency || 'XOF',
-          }))
+          .then((data) => {
+            const baseRevenue = data?.summary?.totalRevenue || 0;
+            const convertedRevenue = convertAmount(baseRevenue, store.currency || 'XOF', selectedCurrency);
+            return {
+              name: store.name,
+              value: Math.round(convertedRevenue),
+              revenue: convertedRevenue,
+              currency: selectedCurrency,
+              baseCurrency: store.currency || 'XOF',
+            };
+          })
           .catch(() => ({
             name: store.name,
             value: 0,
             revenue: 0,
-            currency: 'XOF',
+            currency: selectedCurrency,
+            baseCurrency: 'XOF',
           }))
       );
 
@@ -92,7 +135,6 @@ export default function StatsPage() {
         setStats(data);
         const defaultData = timeframe === 'week' ? data.weekly : timeframe === 'year' ? data.yearly : data.monthly;
         if (defaultData && defaultData.length > 0) {
-          // On se positionne par défaut sur la dernière barre disponible
           const activeItem = defaultData[defaultData.length - 1];
           setSelectedPeriodText(activeItem.date);
           setSelectedPeriodId(activeItem.id);
@@ -115,9 +157,8 @@ export default function StatsPage() {
     timeframe === 'week' ? stats?.weekly : 
     timeframe === 'year' ? stats?.yearly : stats?.monthly;
 
-  const maxPeriodValue = activeChartData?.reduce((max: number, item: any) => item.valeur > max ? item.valeur : max, 0) || 1;
+  const storeCurrency = profile?.stores?.find((s: any) => s.id.toString() === selectedStoreId)?.currency || 'XOF';
 
-  // 📌 RECHERCHE ET FILTRAGE UNIVERSEL PAR INDEX NUMÉRIQUE (ZÉRO ERREUR DE LANGUE)
   const getProductDetailsForSelectedPeriod = () => {
     if (rawSales.length === 0) return [];
 
@@ -126,7 +167,7 @@ export default function StatsPage() {
       
       if (timeframe === 'week') {
         let dayIndex = date.getDay() - 1;
-        if (dayIndex === -1) dayIndex = 6; // Lundi=0... Dimanche=6
+        if (dayIndex === -1) dayIndex = 6;
         return dayIndex === selectedPeriodId;
       }
       
@@ -134,7 +175,7 @@ export default function StatsPage() {
         return date.getFullYear() === selectedPeriodId;
       }
       
-      return date.getMonth() === selectedPeriodId; // Mode mois (0 à 11)
+      return date.getMonth() === selectedPeriodId;
     });
 
     const productMap = new Map<string, { sku: string; qty: number; total: number }>();
@@ -161,7 +202,6 @@ export default function StatsPage() {
 
   const detailedProducts = getProductDetailsForSelectedPeriod();
 
-  // Custom tooltip for the pie chart
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -179,6 +219,11 @@ export default function StatsPage() {
     return null;
   };
 
+  const maxPeriodValue = activeChartData?.reduce((max: number, item: any) => {
+    const converted = convertAmount(item.valeur, storeCurrency, selectedCurrency);
+    return converted > max ? converted : max;
+  }, 0) || 1;
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
       <Sidebar />
@@ -190,20 +235,42 @@ export default function StatsPage() {
               <BarChart3 className="text-blue-600" size={28} />
               <span>Performances Commerciales</span>
             </h1>
-            <p className="text-slate-500 text-sm mt-1">Cliquez sur une barre verticale pour lister l'inventaire écoulé.</p>
+            <p className="text-slate-500 text-sm mt-1">
+              Données converties en {selectedCurrency} • Taux mis à jour: {lastExchangeUpdate || 'Chargement...'}
+            </p>
           </div>
           
-          <div className="flex items-center space-x-3 bg-white p-1.5 border border-slate-200 rounded-xl shadow-sm">
-            <span className="text-xs font-bold text-slate-400 uppercase px-2 tracking-wider">Entrepôt :</span>
-            <select 
-              value={selectedStoreId} 
-              onChange={(e) => setSelectedStoreId(e.target.value)}
-              className="p-1.5 px-3 rounded-lg text-sm bg-slate-50 border border-slate-200 font-semibold outline-none text-slate-700 focus:border-blue-500 cursor-pointer"
-            >
-              {profile?.stores?.map((store: any) => (
-                <option key={store.id} value={store.id}>{store.name}</option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center space-x-3 bg-white p-1.5 border border-slate-200 rounded-xl shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase px-2 tracking-wider">Devise :</span>
+              <select 
+                value={selectedCurrency}
+                onChange={(e) => {
+                  setSelectedCurrency(e.target.value);
+                  if (profile?.stores) {
+                    fetchAllStoresStats(profile.stores, localStorage.getItem('access_token') || '');
+                  }
+                }}
+                className="p-1.5 px-3 rounded-lg text-sm bg-slate-50 border border-slate-200 font-semibold outline-none text-slate-700 focus:border-blue-500 cursor-pointer"
+              >
+                {SUPPORTED_CURRENCIES.map((curr) => (
+                  <option key={curr} value={curr}>{curr}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-3 bg-white p-1.5 border border-slate-200 rounded-xl shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase px-2 tracking-wider">Magasin :</span>
+              <select 
+                value={selectedStoreId}
+                onChange={(e) => setSelectedStoreId(e.target.value)}
+                className="p-1.5 px-3 rounded-lg text-sm bg-slate-50 border border-slate-200 font-semibold outline-none text-slate-700 focus:border-blue-500 cursor-pointer"
+              >
+                {profile?.stores?.map((store: any) => (
+                  <option key={store.id} value={store.id}>{store.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -211,32 +278,41 @@ export default function StatsPage() {
           <Card className="border-none shadow-sm bg-gradient-to-br from-blue-600 to-indigo-700 text-white overflow-hidden relative">
             <CardContent className="p-6 space-y-2">
               <span className="text-xs font-bold text-indigo-100 uppercase tracking-widest">Chiffre d'Affaires Réel</span>
-              <div className="text-3xl font-black font-mono tracking-tight">{stats?.summary?.totalRevenue?.toFixed(2) || '0.00'} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div>
+              <div className="text-3xl font-black font-mono tracking-tight">
+                {convertAmount(stats?.summary?.totalRevenue || 0, storeCurrency, selectedCurrency).toFixed(2)} 
+                <span className="text-sm font-sans uppercase ml-1">{selectedCurrency}</span>
+              </div>
+              <p className="text-xs text-indigo-200">Devise originale: {storeCurrency}</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-200 shadow-sm bg-white">
             <CardContent className="p-6 space-y-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Valeur du Stock Restant</span>
-              <div className="text-3xl font-black font-mono tracking-tight text-green-600">{stats?.summary?.totalRevenue?.toFixed(2) || '0.00'} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div>
+              <div className="text-3xl font-black font-mono tracking-tight text-green-600">
+                {convertAmount(stats?.summary?.totalRevenue || 0, storeCurrency, selectedCurrency).toFixed(2)} 
+                <span className="text-sm font-sans uppercase ml-1">{selectedCurrency}</span>
+              </div>
             </CardContent>
           </Card>
           <Card className="border border-slate-200 shadow-sm bg-white">
             <CardContent className="p-6 space-y-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Volume d'Inventaire</span>
-              <div className="text-3xl font-black font-mono tracking-tight text-amber-600">{stats?.summary?.totalValue?.toFixed(2) || '0.00'} <span className="text-sm font-sans uppercase">{stats?.currency || 'XOF'}</span></div>
+              <div className="text-3xl font-black font-mono tracking-tight text-amber-600">
+                {convertAmount(stats?.summary?.totalValue || 0, storeCurrency, selectedCurrency).toFixed(2)} 
+                <span className="text-sm font-sans uppercase ml-1">{selectedCurrency}</span>
+              </div>
             </CardContent>
           </Card>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3 mb-8">
-          {/* Circular Diagram - All Stores Stats */}
           <Card className="border border-slate-200 shadow-sm bg-white md:col-span-1">
             <CardHeader className="border-b border-slate-50 pb-4">
               <div className="flex items-center space-x-2">
                 <PieChart className="text-indigo-600" size={20} />
                 <div>
                   <CardTitle className="text-base font-bold text-slate-900">Performance des Magasins</CardTitle>
-                  <CardDescription>Distribution du chiffre d'affaires</CardDescription>
+                  <CardDescription>Distribution en {selectedCurrency}</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -279,14 +355,13 @@ export default function StatsPage() {
                       />
                       <span className="text-slate-700 font-medium">{store.name}</span>
                     </div>
-                    <span className="font-semibold text-slate-900">{store.revenue.toFixed(2)} {store.currency}</span>
+                    <span className="font-semibold text-slate-900">{store.revenue.toFixed(2)} {selectedCurrency}</span>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* Bar Chart */}
           <Card className="md:col-span-2 border border-slate-200 shadow-sm bg-white flex flex-col justify-between">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6 border-b border-slate-50">
               <div>
@@ -307,19 +382,20 @@ export default function StatsPage() {
               </div>
 
               {activeChartData?.map((item: any, idx: number) => {
-                const isSelected = item.id === selectedPeriodId; // Comparaison par ID numérique invariable
-                const barHeight = maxPeriodValue > 0 ? (item.valeur / maxPeriodValue) * 75 : 0;
+                const isSelected = item.id === selectedPeriodId;
+                const convertedValue = convertAmount(item.valeur, storeCurrency, selectedCurrency);
+                const barHeight = maxPeriodValue > 0 ? (convertedValue / maxPeriodValue) * 75 : 0;
 
                 return (
                   <div 
                     key={idx} 
                     onClick={() => {
                       setSelectedPeriodText(item.date);
-                      setSelectedPeriodId(item.id); // FIXATION DE L'INDEX NUMÉRIQUE AU CLIC
+                      setSelectedPeriodId(item.id);
                     }} 
                     className="flex flex-col items-center flex-1 group h-full justify-end cursor-pointer relative z-10">
                       <span className={`text-[10px] font-mono font-bold mb-2 p-1 px-1.5 rounded transition-all duration-200 shadow-sm ${isSelected ? 'opacity-100 bg-slate-200 text-slate-900' : 'opacity-0'}`}>
-                        {item.valeur.toFixed(0)} {stats?.currency || 'XOF'}
+                        {convertedValue.toFixed(0)} {selectedCurrency}
                       </span>
                     <div 
                       className={`w-10 rounded-t-xl transition-all duration-300 ${
@@ -342,11 +418,10 @@ export default function StatsPage() {
         </div>
 
         <div className="grid gap-6">
-          {/* TABLEAU PANNEAU LATÉRAL DU DRILL-DOWN HISTORISÉ */}
           <Card className="border border-slate-200 shadow-sm bg-white">
             <CardHeader className="border-b border-slate-50 pb-4">
               <CardTitle className="text-base font-bold text-slate-900">Détails de la Période</CardTitle>
-              <CardDescription>Articles expédiés en <span className="font-semibold text-gray-900">{selectedPeriodText}</span></CardDescription>
+              <CardDescription>Articles expédiés en <span className="font-semibold text-gray-900">{selectedPeriodText}</span> • Montants en {selectedCurrency}</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -354,7 +429,7 @@ export default function StatsPage() {
                   <TableRow>
                     <TableHead className="pl-4 text-xs font-bold text-slate-400 uppercase">Produit</TableHead>
                     <TableHead className="text-center text-xs font-bold text-slate-400 uppercase">Qté</TableHead>
-                    <TableHead className="text-right pr-4 text-xs font-bold text-slate-400 uppercase">Total</TableHead>
+                    <TableHead className="text-right pr-4 text-xs font-bold text-slate-400 uppercase">Total ({selectedCurrency})</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -365,7 +440,9 @@ export default function StatsPage() {
                         <span className="text-[10px] text-slate-400 font-mono">SKU: {prod.sku}</span>
                       </TableCell>
                       <TableCell className="text-center font-bold text-slate-700 text-xs">x{prod.qty}</TableCell>
-                      <TableCell className="text-right font-mono font-bold text-emerald-600 text-xs pr-4">+{prod.total.toFixed(2)} {stats?.currency || 'XOF'}</TableCell>
+                      <TableCell className="text-right font-mono font-bold text-emerald-600 text-xs pr-4">
+                        +{convertAmount(prod.total, storeCurrency, selectedCurrency).toFixed(2)} {selectedCurrency}
+                      </TableCell>
                     </TableRow>
                   ))}
 
