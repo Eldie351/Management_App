@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ExchangeRateService } from '../exchange-rate/exchange-rate.service';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ExchangeRateService } from './exchange-rate.service';
 
 @Injectable()
-export class ExchangeRateCronService implements OnModuleInit {
+export class ExchangeRateCronService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExchangeRateCronService.name);
   private cronInterval: NodeJS.Timeout | null = null;
 
