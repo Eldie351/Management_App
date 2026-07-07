@@ -37,6 +37,17 @@ function ProductsContent() {
   const [rechargeError, setRechargeError] = useState('');
   const [isRecharging, setIsRecharging] = useState(false);
 
+  // États pour le formulaire d'édition/modification
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editProduct, setEditProduct] = useState<any>(null);
+  const [editName, setEditName] = useState('');
+  const [editSku, setEditSku] = useState('');
+  const [editPrice, setEditPrice] = useState(0);
+  const [editDescription, setEditDescription] = useState('');
+  const [editQuantity, setEditQuantity] = useState(0); 
+  const [editError, setEditError] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+
   // Fonction pour charger les produits
   const fetchProducts = async () => {
     const token = localStorage.getItem('access_token');
@@ -101,7 +112,7 @@ function ProductsContent() {
           name,
           sku: sku || undefined,
           quantity: Number(quantity),
-          price: Number(price),
+          price: Number(price), 
           description,
           storeId: Number(storeId),
         }),
@@ -121,6 +132,42 @@ function ProductsContent() {
       setFormError(err.message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Action pour envoyer les modifications du produit
+  const handleUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditError('');
+    setIsEditing(true);
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const res = await fetch(`http://localhost:3001/products/${editProduct.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: editName,
+          sku: editSku || null,
+          price: Number(editPrice), 
+          description: editDescription || null,
+          quantity: Number(editQuantity), 
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Échec de la modification.');
+
+      setIsEditModalOpen(false);
+      setEditProduct(null);
+      fetchProducts();
+    } catch (err: any) {
+      setEditError(err.message);
+    } finally {
+      setIsEditing(false);
     }
   };
 
@@ -245,8 +292,9 @@ function ProductsContent() {
                       </TableCell>
                     )}
 
+                    {/* 👈 CORRIGÉ : Affiche la valeur de secours si initialStock est null/undefined */}
                     <TableCell className="text-center text-gray-500 font-medium">
-                      {product.initialStock} u.
+                      {product.initialStock ?? product.quantity} u.
                     </TableCell>
 
                     <TableCell className="text-center font-semibold">
@@ -264,11 +312,27 @@ function ProductsContent() {
                     </TableCell>
 
                     <TableCell className="text-right font-mono font-bold">
-                      {Number(product.price).toFixed(2)} <span className="text-xs text-blue-600 font-sans uppercase">{product.currency || 'XOF'}</span>
+                      {Number(product.sellingPrice ?? 0).toFixed(2)} <span className="text-xs text-blue-600 font-sans uppercase">{product.currency || 'XOF'}</span>
                     </TableCell>
                     <TableCell className="text-right space-x-2">
                       <Button 
-                                              size="sm" 
+                        size="sm" 
+                        variant="outline"
+                        className="border-blue-200 hover:bg-blue-50 text-blue-600 font-medium"
+                        onClick={() => {
+                          setEditProduct(product);
+                          setEditName(product.name);
+                          setEditSku(product.sku || '');
+                          setEditPrice(product.sellingPrice ?? 0);
+                          setEditDescription(product.description || '');
+                          setEditQuantity(product.quantity); 
+                          setIsEditModalOpen(true);
+                        }}
+                      >
+                        Modifier
+                      </Button>
+                      <Button 
+                        size="sm" 
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
                         onClick={() => {
                           setSelectedProduct(product);
@@ -337,6 +401,56 @@ function ProductsContent() {
                 <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
                   <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Annuler</Button>
                   <Button type="submit" disabled={isSubmitting}>Valider l’entrée</Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* POPUP DE MODIFICATION DE PRODUIT */}
+      {isEditModalOpen && editProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <Card className="w-[500px] shadow-2xl bg-white animate-in fade-in zoom-in duration-200">
+            <CardHeader>
+              <CardTitle>Modifier la fiche produit</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleUpdateProduct} className="space-y-4">
+                {editError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{editError}</p>}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="editProdName">Nom du produit *</Label>
+                    <Input id="editProdName" value={editName} onChange={(e) => setEditName(e.target.value)} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="editProdSku">Référence interne (SKU)</Label>
+                    <Input id="editProdSku" value={editSku} onChange={(e) => setEditSku(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="editProdPrice">Prix Unitaire *</Label>
+                    <div className="relative flex items-center">
+                      <Input id="editProdPrice" type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} required className="pr-16" />
+                      <span className="absolute right-3 text-xs font-bold text-slate-400 uppercase">
+                        {editProduct.currency || 'XOF'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="editProdQty">Quantité actuelle en stock</Label>
+                    <Input id="editProdQty" type="number" min="0" value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))} required />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="editProdDesc">Description</Label>
+                    <Input id="editProdDesc" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
+                  <Button type="button" variant="outline" onClick={() => {
+                    setIsEditModalOpen(false);
+                    setEditProduct(null);
+                  }}>Annuler</Button>
+                  <Button type="submit" disabled={isEditing}>Enregistrer les modifications</Button>
                 </div>
               </form>
             </CardContent>
