@@ -49,33 +49,33 @@ export class UsersService {
     });
   }
 
-async findProfileWithStores(id: number) {
-  if (!this.prisma) {
-    throw new InternalServerErrorException('PrismaService not available');
-  }
+  async findProfileWithStores(id: number) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
 
-  return this.prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      createdAt: true,
-      stores: {
-        select: {
-          id: true,
-          name: true,
-          location: true,
-          currency: true,
-          _count: {
-            select: { products: true } // Compte le nombre de produits par magasin
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+        stores: {
+          select: {
+            id: true,
+            name: true,
+            location: true,
+            currency: true,
+            _count: {
+              select: { products: true }
+            }
           }
         }
       }
-    }
-  });
-}
+    });
+  }
 
   async findById(id: number) {
     if (!this.prisma) {
@@ -89,9 +89,18 @@ async findProfileWithStores(id: number) {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
+    // AJUSTEMENT : On met à jour `resetTokenExp` sur User et on gère la table ResetToken en relation
     return this.prisma.user.update({
       where: { id },
-      data: { resetToken: token, resetTokenExp: expiresAt },
+      data: {
+        resetTokenExp: expiresAt,
+        resetToken: {
+          upsert: {
+            update: { token, expiresAt },
+            create: { token, expiresAt },
+          },
+        },
+      },
     });
   }
 
@@ -100,7 +109,21 @@ async findProfileWithStores(id: number) {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
-    return this.prisma.user.findFirst({ where: { resetToken: token } });
+    // AJUSTEMENT : Recherche par la clé unique `token` de la table ResetToken
+    const tokenRecord = await this.prisma.resetToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!tokenRecord) {
+      return null;
+    }
+
+    // Renvoie l'utilisateur lié avec la propriété de temps pour ton AuthService
+    return {
+      ...tokenRecord.user,
+      resetTokenExp: tokenRecord.expiresAt,
+    };
   }
 
   async updatePassword(id: number, hashedPassword: string) {
@@ -119,9 +142,15 @@ async findProfileWithStores(id: number) {
       throw new InternalServerErrorException('PrismaService not available');
     }
 
+    // AJUSTEMENT : On nettoie `resetTokenExp` de User et on supprime la relation ResetToken en cascade
     return this.prisma.user.update({
       where: { id },
-      data: { resetToken: null, resetTokenExp: null },
+      data: {
+        resetTokenExp: null,
+        resetToken: {
+          delete: true,
+        },
+      },
     });
   }
 

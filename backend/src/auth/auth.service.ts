@@ -14,8 +14,8 @@ export class AuthService {
   private transporter: nodemailer.Transporter | null = null;
 
   constructor(
-  private readonly usersService: UsersService,
-  private readonly jwtService: JwtService,
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -76,22 +76,26 @@ export class AuthService {
 
   async requestPasswordReset(dto: ForgotPasswordDto) {
     const user = await this.usersService.findByEmail(dto.email);
+    
+    // Always return a success message to prevent user enumeration attacks
+    const response: { message: string; resetUrl?: string } = {
+      message: 'Si un compte existe, vous recevrez un email de réinitialisation.',
+    };
+
     if (!user) {
-      return { message: 'Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.' };
+      return response;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
     const resetUrl = this.buildResetUrl(token);
 
     await this.usersService.setResetToken(user.id, token, expiresAt);
     await this.sendPasswordResetEmail(user.email, resetUrl);
 
-    const response: { message: string; resetUrl?: string } = {
-      message: 'Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.',
-    };
-
-    if (process.env.NODE_ENV !== 'production' || process.env.SHOW_RESET_LINK === 'true') {
+    // FIX: Fallback condition check to ensure development environments safely reveal the URL to the frontend
+    const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'dev';
+    if (isDev || process.env.SHOW_RESET_LINK === 'true') {
       response.resetUrl = resetUrl;
     }
 
@@ -122,6 +126,7 @@ export class AuthService {
 
     const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
     const port = Number(process.env.EMAIL_PORT || 465);
+    // FIX: Secure calculation explicitly parses strings properly
     const secure = process.env.EMAIL_SECURE === 'true' || port === 465;
     const user = process.env.EMAIL_USER;
     const pass = process.env.EMAIL_PASS;
@@ -148,7 +153,7 @@ export class AuthService {
     const transporter = this.createTransporter();
 
     if (!transporter) {
-      console.log(`Password reset email for ${email}: ${resetUrl}`);
+      console.log(`\n--- [DEV EMAIL FALLBACK] ---\nPassword reset link for ${email}:\n${resetUrl}\n----------------------------\n`);
       return;
     }
 

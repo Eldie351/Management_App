@@ -24,9 +24,6 @@ export class ExchangeRateService {
     this.apiKey = this.config.get<string>('OPENEXCHANGERATES_API_KEY') || 'free';
   }
 
-  /**
-   * Fetch exchange rates from the API and cache them in the database
-   */
   async fetchAndCacheExchangeRates(): Promise<void> {
     try {
       this.logger.log('Fetching exchange rates from the configured API...');
@@ -61,32 +58,34 @@ export class ExchangeRateService {
 
       // Store rates in database
       for (const [targetCurrency, rate] of Object.entries(rates)) {
+        const rateValue = Number(rate);
+
         // USD to target currency
         await this.prisma.exchangeRate.upsert({
           where: {
             fromCurrency_toCurrency: {
               fromCurrency: 'USD',
-              toCurrency: targetCurrency as string,
+              toCurrency: targetCurrency,
             },
           },
           update: {
-            rate: parseFloat(rate as any),
+            rate: rateValue,
             lastUpdated: new Date(),
           },
           create: {
             fromCurrency: 'USD',
-            toCurrency: targetCurrency as string,
-            rate: parseFloat(rate as any),
+            toCurrency: targetCurrency,
+            rate: rateValue,
             source: 'OPENEXCHANGERATES',
           },
         });
 
         // Reverse: target currency to USD
-        const reverseRate = 1 / (rate as number);
+        const reverseRate = 1 / rateValue;
         await this.prisma.exchangeRate.upsert({
           where: {
             fromCurrency_toCurrency: {
-              fromCurrency: targetCurrency as string,
+              fromCurrency: targetCurrency,
               toCurrency: 'USD',
             },
           },
@@ -95,7 +94,7 @@ export class ExchangeRateService {
             lastUpdated: new Date(),
           },
           create: {
-            fromCurrency: targetCurrency as string,
+            fromCurrency: targetCurrency,
             toCurrency: 'USD',
             rate: reverseRate,
             source: 'OPENEXCHANGERATES',
@@ -103,7 +102,7 @@ export class ExchangeRateService {
         });
       }
 
-      // Cross-currency rates (XOF to EUR, GBP, NGN, etc.)
+      // Cross-currency rates
       const currencies = ['XOF', 'EUR', 'USD', 'GBP', 'NGN'];
       for (let i = 0; i < currencies.length; i++) {
         for (let j = i + 1; j < currencies.length; j++) {
@@ -158,62 +157,41 @@ export class ExchangeRateService {
         }
       }
 
-      this.logger.log('✅ Exchange rates cached successfully');
+      this.logger.log('... Exchange rates cached successfully');
     } catch (error) {
       this.logger.warn('Using fallback exchange rates because the update failed.', error);
     }
   }
 
-  /**
-   * Get exchange rate from database
-   */
-  private async getExchangeRateFromDB(
-    from: string,
-    to: string,
-  ): Promise<number | null> {
+  private async getExchangeRateFromDB(from: string, to: string): Promise<number | null> {
     const rate = await this.prisma.exchangeRate.findUnique({
       where: {
-        fromCurrency_toCurrency: {
-          fromCurrency: from,
-          toCurrency: to,
-        },
+        fromCurrency_toCurrency: { fromCurrency: from, toCurrency: to },
       },
     });
-    return rate?.rate ? rate.rate.toString() : null;
+    return rate?.rate ? Number(rate.rate) : null;
   }
 
-  /**
-   * Convert amount from one currency to another using cached rates
-   */
   async convert(
     amount: number,
     fromCurrency: string,
     toCurrency: string,
   ): Promise<{ convertedAmount: number; rate: number; lastUpdated: Date }> {
     if (fromCurrency === toCurrency) {
-      return {
-        convertedAmount: amount,
-        rate: 1,
-        lastUpdated: new Date(),
-      };
+      return { convertedAmount: amount, rate: 1, lastUpdated: new Date() };
     }
 
     const exchangeRate = await this.prisma.exchangeRate.findUnique({
       where: {
-        fromCurrency_toCurrency: {
-          fromCurrency,
-          toCurrency,
-        },
+        fromCurrency_toCurrency: { fromCurrency, toCurrency },
       },
     });
 
     if (!exchangeRate) {
-      throw new Error(
-        `Exchange rate not found for ${fromCurrency} to ${toCurrency}`,
-      );
+      throw new Error(`Exchange rate not found for ${fromCurrency} to ${toCurrency}`);
     }
 
-    const rate = parseFloat(exchangeRate.rate.toString());
+    const rate = Number(exchangeRate.rate);
     const convertedAmount = amount * rate;
 
     return {
@@ -223,25 +201,16 @@ export class ExchangeRateService {
     };
   }
 
-  /**
-   * Get all cached exchange rates
-   */
   async getAllExchangeRates() {
     return this.prisma.exchangeRate.findMany({
       orderBy: { lastUpdated: 'desc' },
     });
   }
 
-  /**
-   * Get exchange rate info
-   */
   async getExchangeRateInfo(from: string, to: string) {
     return this.prisma.exchangeRate.findUnique({
       where: {
-        fromCurrency_toCurrency: {
-          fromCurrency: from,
-          toCurrency: to,
-        },
+        fromCurrency_toCurrency: { fromCurrency: from, toCurrency: to },
       },
     });
   }
