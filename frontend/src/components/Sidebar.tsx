@@ -3,11 +3,42 @@
 import { useState, useEffect } from 'react';
 import Link from "next/link";
 import { usePathname } from 'next/navigation';
-import { Menu, X, LayoutDashboard, Package, ShoppingCart, BarChart3, User } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Package, ShoppingCart, BarChart3, User, AlertTriangle, Store, Users, Settings, ReceiptText } from 'lucide-react';
+import { getStoredUserRole, getRoleLabel, type AppRole } from '@/lib/auth';
+
+const adminItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/products', label: 'Produits', icon: Package },
+  { href: '/sales', label: 'Ventes', icon: ShoppingCart },
+  { href: '/stats', label: 'Rapports', icon: BarChart3 },
+  { href: '/alerts', label: 'Alertes', icon: AlertTriangle },
+  { href: '/profil', label: 'Profil', icon: User },
+];
+
+const managerItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/products', label: 'Produits', icon: Package },
+  { href: '/sales', label: 'Ventes', icon: ShoppingCart },
+  { href: '/stats', label: 'Rapports', icon: BarChart3 },
+  { href: '/alerts', label: 'Alertes', icon: AlertTriangle },
+  { href: '/profil', label: 'Profil', icon: User },
+];
+
+const cashierItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/products', label: 'Produits', icon: Package },
+  { href: '/sales', label: 'Ventes', icon: ShoppingCart },
+  { href: '/profil', label: 'Profil', icon: User },
+];
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true);
   const pathname = usePathname();
+  const [role, setRole] = useState<AppRole | null>(null);
+
+  useEffect(() => {
+    setRole(getStoredUserRole());
+  }, []);
 
   // Effet pour appliquer un espace de sécurité automatique (Ouvert et Fermé)
   useEffect(() => {
@@ -52,56 +83,29 @@ export default function Sidebar() {
             </Link>
           </h1>
 
+          <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">Session</p>
+            <p className="mt-1 text-sm font-semibold text-gray-900">{getRoleLabel(role)}</p>
+            <p className="text-xs text-gray-500">Accès adapté à votre rôle</p>
+          </div>
+
           <nav className="space-y-1">
-            <Link
-              href="/dashboard"
-              className={`flex items-center space-x-3 rounded-lg p-2.5 text-sm font-medium transition-all ${
-                pathname === '/dashboard' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <LayoutDashboard size={18} className={pathname === '/dashboard' ? 'text-blue-500' : 'text-gray-400'} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/products"
-              className={`flex items-center space-x-3 rounded-lg p-2.5 text-sm font-medium transition-all ${
-                pathname === '/products' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <Package size={18} className={pathname === '/products' ? 'text-blue-500' : 'text-gray-400'} />
-              <span>Produits</span>
-            </Link>
-
-            <Link
-              href="/sales"
-              className={`flex items-center space-x-3 rounded-lg p-2.5 text-sm font-medium transition-all ${
-                pathname === '/sales' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <ShoppingCart size={18} className={pathname === '/sales' ? 'text-blue-500' : 'text-gray-400'} />
-              <span>Ventes</span>
-            </Link>
-
-            <Link
-              href="/stats"
-              className={`flex items-center space-x-3 rounded-lg p-2.5 text-sm font-medium transition-all ${
-                pathname === '/stats' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <BarChart3 size={18} className={pathname === '/stats' ? 'text-blue-500' : 'text-gray-400'} />
-              <span>Statistiques</span>
-            </Link>
-
-            <Link
-              href="/profil"
-              className={`flex items-center space-x-3 rounded-lg p-2.5 text-sm font-medium transition-all ${
-                pathname === '/profil' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <User size={18} className={pathname === '/profil' ? 'text-blue-500' : 'text-gray-400'} />
-              <span>Profil</span>
-            </Link>
+            {(role === 'CASHIER' ? cashierItems : role === 'MANAGER' ? managerItems : adminItems).map((item) => {
+              const Icon = item.icon;
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center space-x-3 rounded-lg p-2.5 text-sm font-medium transition-all ${
+                    active ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon size={18} className={active ? 'text-blue-500' : 'text-gray-400'} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
           </nav>
         </div>
       </aside>

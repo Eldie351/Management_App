@@ -74,6 +74,44 @@ describe('UsersService', () => {
     expect(res).toEqual(user);
   });
 
+  it('creates a manager or cashier for admin', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const hashed = 'hashed-password';
+    (bcrypt.hash as jest.Mock).mockResolvedValue(hashed);
+    const created = {
+      id: 7,
+      email: 'staff@demo.com',
+      name: 'Staff',
+      password: hashed,
+      role: 'CASHIER',
+    };
+    prismaMock.user.create.mockResolvedValue(created);
+
+    const result = await service.createStaffUser({
+      email: 'staff@demo.com',
+      name: 'Staff',
+      password: 'plain',
+      role: 'CASHIER',
+    } as any);
+
+    expect(prismaMock.user.create).toHaveBeenCalledWith({
+      data: {
+        email: 'staff@demo.com',
+        name: 'Staff',
+        password: hashed,
+        role: 'CASHIER',
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+    expect(result).toEqual(created);
+  });
+
   it('finds users by store id', async () => {
     const users = [{ id: 5, email: 'd@d.com' }];
     prismaMock.user.findMany.mockResolvedValue(users);

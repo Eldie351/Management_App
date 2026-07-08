@@ -46,6 +46,27 @@ export class StoresService {
   }
 
   /**
+   * 3bis. METTRE À JOUR LES PARAMÈTRES DU MAGASIN (nom, localisation, devise)
+   */
+  async updateStore(storeId: number, data: { name?: string; location?: string; currency?: Currency }) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    if (!store) throw new NotFoundException('Magasin introuvable.');
+
+    return this.prisma.store.update({
+      where: { id: storeId },
+      data: {
+        name: data.name,
+        location: data.location,
+        currency: data.currency,
+      },
+    });
+  }
+
+  /**
    * 3. SUPPRIMER UN MAGASIN
    */
   async deleteStore(storeId: number) {

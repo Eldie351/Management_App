@@ -1,6 +1,13 @@
-import { Injectable, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  InternalServerErrorException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -29,6 +36,48 @@ export class UsersService {
     });
 
     return user;
+  }
+
+  async createStaffUser(data: {
+    email: string;
+    name: string;
+    password: string;
+    role: UserRole;
+  }) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    if (data.role !== UserRole.MANAGER && data.role !== UserRole.CASHIER) {
+      throw new BadRequestException(
+        'Seuls les rôles MANAGER et CASHIER peuvent être créés via cette action.',
+      );
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: data.email },
+    });
+    if (existingUser) {
+      throw new ConflictException('Email already in use');
+    }
+
+    const hashed = await bcrypt.hash(data.password, 10);
+
+    return this.prisma.user.create({
+      data: {
+        email: data.email,
+        name: data.name,
+        password: hashed,
+        role: data.role,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+      },
+    });
   }
 
   async findByEmail(email: string) {
@@ -69,11 +118,11 @@ export class UsersService {
             location: true,
             currency: true,
             _count: {
-              select: { products: true }
-            }
-          }
-        }
-      }
+              select: { products: true },
+            },
+          },
+        },
+      },
     });
   }
 
@@ -160,5 +209,41 @@ export class UsersService {
     }
 
     await this.prisma.user.delete({ where: { id } });
+  }
+
+  /**
+   * ⚠️ Liste TOUS les utilisateurs du système (pas de notion de "staff d'un
+   * magasin" dans le schéma actuel — voir note dans users.controller.ts).
+   */
+  async findAll() {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updateRole(id: number, role: UserRole) {
+    if (!this.prisma) {
+      throw new InternalServerErrorException('PrismaService not available');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { role },
+      select: { id: true, email: true, name: true, role: true },
+    });
   }
 }

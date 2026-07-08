@@ -24,4 +24,16 @@ export class CreateProductDto {
   @IsNumber()
   @IsNotEmpty({ message: 'Le produit doit être rattaché à un magasin.' })
   storeId: number;
+
+  @IsNumber()
+  @Min(0, { message: 'Le stock minimum ne peut pas être négatif.' })
+  minimumStock?: number;
+
+  @IsNumber()
+  @IsOptional()
+  categoryId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  supplierId?: number;
 }

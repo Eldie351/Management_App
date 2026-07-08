@@ -24,4 +24,17 @@ export class UpdateProductDto {
   @IsNumber()
   @IsOptional()
   storeId?: number;
+
+  @IsNumber()
+  @Min(0, { message: 'Le stock minimum ne peut pas être négatif.' })
+  @IsOptional()
+  minimumStock?: number;
+
+  @IsNumber()
+  @IsOptional()
+  categoryId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  supplierId?: number;
 }

@@ -9,6 +9,10 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StoresModule } from './users/stores/stores.module';
 import { UsersModule } from './users/users.module';
 import { ExchangeRateModule } from './exchange-rate/exchange-rate.module';
+import { CategoriesModule } from './users/stores/categories/categories.module';
+import { SuppliersModule } from './users/stores/suppliers/suppliers.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { AuditLogModule } from './audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -18,7 +22,11 @@ import { ExchangeRateModule } from './exchange-rate/exchange-rate.module';
     AuthModule, 
     StoresModule,
     ProductsModule,
-    ExchangeRateModule
+    ExchangeRateModule,
+    CategoriesModule,
+    SuppliersModule,
+    NotificationsModule,
+    AuditLogModule,
   ],
   controllers: [AppController],
   providers: [AppService],

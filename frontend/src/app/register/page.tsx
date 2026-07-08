@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { persistUserSession } from '@/lib/auth';
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
@@ -53,7 +54,7 @@ export default function RegisterPage() {
         throw new Error(loginData.message || 'Compte créé, mais la connexion a échoué.');
       }
 
-      localStorage.setItem('access_token', loginData.access_token);
+      persistUserSession({ access_token: loginData.access_token, role: loginData.role, name: loginData.name });
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.message);

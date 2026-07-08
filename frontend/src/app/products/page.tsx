@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { getStockLabel, getStockStatus } from '@/lib/stock-status';
 
 function ProductsContent() {
   const router = useRouter();
@@ -26,6 +27,7 @@ function ProductsContent() {
   const [sku, setSku] = useState('');
   const [quantity, setQuantity] = useState(0);
   const [price, setPrice] = useState(0);
+  const [minimumStock, setMinimumStock] = useState(5);
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,6 +47,7 @@ function ProductsContent() {
   const [editPrice, setEditPrice] = useState(0);
   const [editDescription, setEditDescription] = useState('');
   const [editQuantity, setEditQuantity] = useState(0); 
+  const [editMinimumStock, setEditMinimumStock] = useState(5);
   const [editError, setEditError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
@@ -113,6 +116,7 @@ function ProductsContent() {
           sku: sku || undefined,
           quantity: Number(quantity),
           price: Number(price), 
+          minimumStock: Number(minimumStock),
           description,
           storeId: Number(storeId),
         }),
@@ -125,6 +129,7 @@ function ProductsContent() {
       setSku('');
       setQuantity(0);
       setPrice(0);
+      setMinimumStock(5);
       setDescription('');
       setIsModalOpen(false);
       fetchProducts();
@@ -155,6 +160,7 @@ function ProductsContent() {
           price: Number(editPrice), 
           description: editDescription || null,
           quantity: Number(editQuantity), 
+          minimumStock: Number(editMinimumStock),
         }),
       });
 
@@ -268,11 +274,9 @@ function ProductsContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Désignation</TableHead>
-                  <TableHead>Réf (SKU)</TableHead>
                   {!storeId && <TableHead>Entrepôt</TableHead>}
-                  <TableHead className="text-center">Stock de Départ</TableHead>
                   <TableHead className="text-center">Stock Actuel</TableHead>
-                  <TableHead className="text-center">Date d'Entrée</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
                   <TableHead className="text-right">Prix Unitaire</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -284,65 +288,39 @@ function ProductsContent() {
                       <div>{product.name}</div>
                       {product.description && <span className="text-xs text-gray-400">{product.description}</span>}
                     </TableCell>
-                    <TableCell className="text-gray-500 font-mono text-xs">{product.sku || 'N/A'}</TableCell>
-                    
                     {!storeId && (
                       <TableCell className="font-semibold text-blue-600">
                         🏢 {product.store?.name || `Magasin #${product.storeId}`}
                       </TableCell>
                     )}
 
-                    {/* 👈 CORRIGÉ : Affiche la valeur de secours si initialStock est null/undefined */}
-                    <TableCell className="text-center text-gray-500 font-medium">
-                      {product.initialStock ?? product.quantity} u.
+                    <TableCell className="text-center font-semibold">
+                      <span className="text-sm text-gray-700">{product.quantity} unités</span>
                     </TableCell>
 
                     <TableCell className="text-center font-semibold">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs ${product.quantity > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                        {product.quantity} unités
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="text-center text-xs text-gray-500">
-                      {product.createdAt ? new Date(product.createdAt).toLocaleDateString('fr-FR', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric'
-                      }) : 'N/A'}
+                      {(() => {
+                        const status = getStockStatus(product);
+                        const statusInfo = getStockLabel(status);
+                        return (
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs ${statusInfo.className}`}>
+                            {statusInfo.label}
+                          </span>
+                        );
+                      })()}
                     </TableCell>
 
                     <TableCell className="text-right font-mono font-bold">
                       {Number(product.sellingPrice ?? 0).toFixed(2)} <span className="text-xs text-blue-600 font-sans uppercase">{product.currency || 'XOF'}</span>
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant="outline"
                         className="border-blue-200 hover:bg-blue-50 text-blue-600 font-medium"
-                        onClick={() => {
-                          setEditProduct(product);
-                          setEditName(product.name);
-                          setEditSku(product.sku || '');
-                          setEditPrice(product.sellingPrice ?? 0);
-                          setEditDescription(product.description || '');
-                          setEditQuantity(product.quantity); 
-                          setIsEditModalOpen(true);
-                        }}
+                        onClick={() => router.push(`/products/${product.id}`)}
                       >
-                        Modifier
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
-                        onClick={() => {
-                          setSelectedProduct(product);
-                          setIsRechargeModalOpen(true);
-                        }}
-                      >
-                        Recharger
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDeleteProduct(product.id)}>
-                        Supprimer
+                        Détails
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -394,6 +372,10 @@ function ProductsContent() {
                     <Input id="prodQty" type="number" min="0" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} required />
                   </div>
                   <div className="space-y-2 col-span-2">
+                    <Label htmlFor="prodMinStock">Seuil minimum d’alerte</Label>
+                    <Input id="prodMinStock" type="number" min="0" value={minimumStock} onChange={(e) => setMinimumStock(Number(e.target.value))} />
+                  </div>
+                  <div className="space-y-2 col-span-2">
                     <Label htmlFor="prodDesc">Description</Label>
                     <Input id="prodDesc" placeholder="Détails techniques, couleur..." value={description} onChange={(e) => setDescription(e.target.value)} />
                   </div>
@@ -439,6 +421,10 @@ function ProductsContent() {
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="editProdQty">Quantité actuelle en stock</Label>
                     <Input id="editProdQty" type="number" min="0" value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))} required />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="editProdMinStock">Seuil minimum d’alerte</Label>
+                    <Input id="editProdMinStock" type="number" min="0" value={editMinimumStock} onChange={(e) => setEditMinimumStock(Number(e.target.value))} />
                   </div>
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="editProdDesc">Description</Label>

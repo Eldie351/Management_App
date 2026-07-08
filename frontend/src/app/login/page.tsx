@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { persistUserSession } from '@/lib/auth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -36,10 +37,7 @@ export default function LoginPage() {
         throw new Error(message);
       }
 
-      // Sauvegarde automatique du jeton de session
-      localStorage.setItem('access_token', data.access_token);
-      
-      // Redirection immédiate vers le dashboard
+      persistUserSession({ access_token: data.access_token, role: data.role, name: data.name });
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.message);
