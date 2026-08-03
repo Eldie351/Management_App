@@ -1,8 +1,12 @@
-import { Injectable, InternalServerErrorException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { MovementType, UserRole } from '@prisma/client';
+import { MovementType, PaymentMethod, UserRole } from '@prisma/client';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { AuditLogService } from '../../../audit-log/audit-log.service';
 
@@ -13,6 +17,26 @@ const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
   ADJUSTMENT: 'Ajustement',
 };
 
+export enum StockAlertLevel {
+  NORMAL = 'NORMAL',
+  WARNING = 'WARNING',         // <= minimumStock (Recommandation de commande)
+  CRITICAL = 'CRITICAL',       // <= safetyStock (Urgence absolue)
+  OUT_OF_STOCK = 'OUT_OF_STOCK', // Stock épuisé (0)
+}
+
+export interface RestockSuggestion {
+  id: number;
+  name: string;
+  sku: string | null;
+  unitPrice: number;
+  currentStock: number;
+  minimumStock: number;
+  safetyStock: number;
+  optimalStock: number;
+  status: StockAlertLevel;
+  suggestedQuantityToOrder: number;
+}
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -21,35 +45,133 @@ export class ProductsService {
     private readonly auditLogService: AuditLogService,
   ) {}
 
-  async createProduct(dto: CreateProductDto, userId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
+  /**
+   * Évalue le niveau d'alerte statut d'un produit selon ses seuils
+   */
+  checkStockStatus(product: {
+    quantity: number;
+    minimumStock: number;
+    safetyStock: number;
+  }): StockAlertLevel {
+    if (product.quantity <= 0) {
+      return StockAlertLevel.OUT_OF_STOCK;
+    }
+    if (product.quantity <= product.safetyStock) {
+      return StockAlertLevel.CRITICAL;
+    }
+    if (product.quantity <= product.minimumStock) {
+      return StockAlertLevel.WARNING;
+    }
+    return StockAlertLevel.NORMAL;
+  }
 
-    const storeExists = await this.prisma.store.findUnique({ where: { id: dto.storeId } });
+  /**
+   * Calcule la quantité idéale à commander (optimalStock - currentStock)
+   */
+  calculateRestockQuantity(product: {
+    quantity: number;
+    minimumStock: number;
+    optimalStock?: number | null;
+  }): number {
+    const target = product.optimalStock ?? product.minimumStock * 3;
+    const qtyToOrder = target - product.quantity;
+    return Math.max(0, qtyToOrder);
+  }
+
+  /**
+   * Récupère la liste structurée des produits nécessitant un réapprovisionnement pour un magasin donné
+   */
+  async findLowStockProductsByStore(storeId: number): Promise<RestockSuggestion[]> {
+    const storeExists = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
+
+    if (!storeExists) {
+      throw new NotFoundException(`Le magasin avec l'ID ${storeId} n'existe pas.`);
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        storeId,
+        deletedAt: null,
+      },
+      include: {
+        category: { select: { name: true } },
+        supplier: { select: { name: true, phone: true, email: true } },
+      },
+      orderBy: { quantity: 'asc' },
+    });
+
+    const lowStockItems: RestockSuggestion[] = [];
+
+    for (const product of products) {
+      const status = this.checkStockStatus(product);
+
+      if (status !== StockAlertLevel.NORMAL) {
+        const optimalStock = product.optimalStock ?? product.minimumStock * 3;
+        const suggestedQuantityToOrder = this.calculateRestockQuantity(product);
+
+        lowStockItems.push({
+          id: product.id,
+          name: product.name,
+          sku: product.sku,
+          unitPrice: Number(product.sellingPrice),
+          currentStock: product.quantity,
+          minimumStock: product.minimumStock,
+          safetyStock: product.safetyStock,
+          optimalStock,
+          status,
+          suggestedQuantityToOrder,
+        });
+      }
+    }
+
+    const priorityOrder = {
+      [StockAlertLevel.OUT_OF_STOCK]: 1,
+      [StockAlertLevel.CRITICAL]: 2,
+      [StockAlertLevel.WARNING]: 3,
+      [StockAlertLevel.NORMAL]: 4,
+    };
+
+    return lowStockItems.sort(
+      (a, b) => priorityOrder[a.status] - priorityOrder[b.status],
+    );
+  }
+
+  async createProduct(dto: CreateProductDto & { safetyStock?: number; optimalStock?: number }, userId: number) {
+    const storeExists = await this.prisma.store.findUnique({
+      where: { id: dto.storeId },
+    });
     if (!storeExists) throw new NotFoundException('Magasin introuvable.');
 
     if (dto.categoryId) {
-      const categoryExists = await this.prisma.category.findUnique({ where: { id: dto.categoryId } });
+      const categoryExists = await this.prisma.category.findUnique({
+        where: { id: dto.categoryId },
+      });
       if (!categoryExists) throw new NotFoundException('Catégorie introuvable.');
     }
+
     if (dto.supplierId) {
-      const supplierExists = await this.prisma.supplier.findUnique({ where: { id: dto.supplierId } });
+      const supplierExists = await this.prisma.supplier.findUnique({
+        where: { id: dto.supplierId },
+      });
       if (!supplierExists) throw new NotFoundException('Fournisseur introuvable.');
     }
 
-    // La création du produit et le mouvement de stock CREATION associé
-    // doivent réussir ensemble ou pas du tout.
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
         data: {
           name: dto.name,
           sku: dto.sku,
           quantity: dto.quantity,
-          initialStock: dto.quantity, // 👈 figé définitivement à la création
+          initialStock: dto.quantity,
           purchasePrice: dto.price,
           sellingPrice: dto.price,
           description: dto.description,
           storeId: dto.storeId,
           minimumStock: dto.minimumStock ?? 5,
+          safetyStock: dto.safetyStock ?? 2,
+          optimalStock: dto.optimalStock ?? null,
           categoryId: dto.categoryId,
           supplierId: dto.supplierId,
         },
@@ -59,7 +181,7 @@ export class ProductsService {
         await tx.stockMovement.create({
           data: {
             quantity: dto.quantity,
-            type: 'CREATION',
+            type: MovementType.CREATION,
             productId: product.id,
             storeId: product.storeId,
             userId,
@@ -68,72 +190,77 @@ export class ProductsService {
         });
       }
 
-      await this.auditLogService.log(userId, `a créé le produit "${product.name}"`, 'Product', product.id, tx);
+      await this.auditLogService.log(
+        userId,
+        `a créé le produit "${product.name}"`,
+        'Product',
+        product.id,
+        tx,
+      );
 
       return product;
     });
   }
 
-  /**
-   * MODIFIER UN PRODUIT ENREGISTRÉ
-   */
-  async updateProduct(id: number, dto: UpdateProductDto, userId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
-    // 1. Vérifier si le produit existe (et n'est pas archivé)
+  async updateProduct(id: number, dto: UpdateProductDto & { safetyStock?: number; optimalStock?: number }, userId: number) {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
 
-    // 2. Si le storeId change, vérifier que le nouveau magasin existe
     if (dto.storeId && dto.storeId !== product.storeId) {
-      const storeExists = await this.prisma.store.findUnique({ where: { id: dto.storeId } });
+      const storeExists = await this.prisma.store.findUnique({
+        where: { id: dto.storeId },
+      });
       if (!storeExists) throw new NotFoundException('Le nouveau magasin spécifié est introuvable.');
     }
+
     if (dto.categoryId) {
-      const categoryExists = await this.prisma.category.findUnique({ where: { id: dto.categoryId } });
+      const categoryExists = await this.prisma.category.findUnique({
+        where: { id: dto.categoryId },
+      });
       if (!categoryExists) throw new NotFoundException('Catégorie introuvable.');
     }
+
     if (dto.supplierId) {
-      const supplierExists = await this.prisma.supplier.findUnique({ where: { id: dto.supplierId } });
+      const supplierExists = await this.prisma.supplier.findUnique({
+        where: { id: dto.supplierId },
+      });
       if (!supplierExists) throw new NotFoundException('Fournisseur introuvable.');
     }
 
-    // 3. Appliquer la mise à jour sélective
     const updatedProduct = await this.prisma.product.update({
       where: { id },
       data: {
         name: dto.name,
         sku: dto.sku,
-        // ⚠️ La quantité ne se modifie plus ici : elle doit toujours passer
-        // par /recharge, /stock (vente) ou /adjust pour garder un historique
-        // de StockMovement cohérent avec le stock réel.
-        purchasePrice: dto.price !== undefined ? dto.price : undefined, 
-        sellingPrice: dto.price !== undefined ? dto.price : undefined,  
+        purchasePrice: dto.price !== undefined ? dto.price : undefined,
+        sellingPrice: dto.price !== undefined ? dto.price : undefined,
         description: dto.description,
-        storeId: dto.storeId !== undefined ? dto.storeId : undefined, // 👈 CORRIGÉ : Protège contre les crashs si storeId n'est pas fourni !
+        storeId: dto.storeId !== undefined ? dto.storeId : undefined,
         minimumStock: dto.minimumStock !== undefined ? dto.minimumStock : undefined,
+        safetyStock: dto.safetyStock !== undefined ? dto.safetyStock : undefined,
+        optimalStock: dto.optimalStock !== undefined ? dto.optimalStock : undefined,
         categoryId: dto.categoryId !== undefined ? dto.categoryId : undefined,
         supplierId: dto.supplierId !== undefined ? dto.supplierId : undefined,
       },
     });
 
-    await this.auditLogService.log(userId, `a modifié le produit "${updatedProduct.name}"`, 'Product', id);
+    await this.auditLogService.log(
+      userId,
+      `a modifié le produit "${updatedProduct.name}"`,
+      'Product',
+      id,
+    );
 
     return updatedProduct;
   }
-  
-  /**
-   * GET /products/low-stock : stock > 0 mais <= minimumStock.
-   * GET /products/out-of-stock : stock <= 0.
-   * Scopés aux magasins de l'utilisateur connecté ; filtrable par storeId.
-   */
+
   async findLowStock(userId: number, storeId?: number) {
-    // Prisma ne permet pas de comparer deux colonnes entre elles dans un
-    // `where` (quantity <= minimumStock) : on filtre donc côté application.
     const products = await this.prisma.product.findMany({
       where: {
         deletedAt: null,
-        store: { userId, ...(storeId ? { id: storeId } : {}) },
+        store: storeId
+          ? { id: storeId }
+          : { userId },
       },
       include: { store: { select: { name: true, currency: true } } },
       orderBy: { quantity: 'asc' },
@@ -147,7 +274,9 @@ export class ProductsService {
       where: {
         deletedAt: null,
         quantity: { lte: 0 },
-        store: { userId, ...(storeId ? { id: storeId } : {}) },
+        store: storeId
+          ? { id: storeId }
+          : { userId },
       },
       include: { store: { select: { name: true, currency: true } } },
       orderBy: { updatedAt: 'desc' },
@@ -155,8 +284,6 @@ export class ProductsService {
   }
 
   async findAllByStore(storeId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-    
     return this.prisma.product.findMany({
       where: {
         storeId,
@@ -177,8 +304,6 @@ export class ProductsService {
   }
 
   async deleteProduct(id: number, userId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Produit introuvable.');
 
@@ -189,14 +314,17 @@ export class ProductsService {
       },
     });
 
-    await this.auditLogService.log(userId, `a supprimé le produit "${product.name}"`, 'Product', id);
+    await this.auditLogService.log(
+      userId,
+      `a supprimé le produit "${product.name}"`,
+      'Product',
+      id,
+    );
 
     return { message: 'Produit archivé avec succès.' };
   }
 
   async sellProduct(id: number, quantityToSell: number, userId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
     if (quantityToSell <= 0) {
       throw new BadRequestException('La quantité vendue doit être supérieure à 0.');
     }
@@ -211,6 +339,8 @@ export class ProductsService {
         );
       }
 
+      const totalAmount = product.sellingPrice * quantityToSell;
+
       const updatedProduct = await tx.product.update({
         where: { id },
         data: {
@@ -220,8 +350,8 @@ export class ProductsService {
 
       await tx.stockMovement.create({
         data: {
-          quantity: quantityToSell,
-          type: 'SALE',
+          quantity: -quantityToSell,
+          type: MovementType.SALE,
           productId: product.id,
           storeId: product.storeId,
           userId,
@@ -229,14 +359,28 @@ export class ProductsService {
         },
       });
 
+      const invoiceNumber = `FAC-${Date.now()}`;
+
       const sale = await tx.sale.create({
         data: {
-          unitPrice: product.sellingPrice,
-          quantity: quantityToSell,
-          total: product.sellingPrice * quantityToSell,
-          productId: product.id,
+          invoiceNumber,
+          totalAmount,
+          paymentMethod: PaymentMethod.CASH,
           storeId: product.storeId,
           userId,
+          items: {
+            create: [
+              {
+                productId: product.id,
+                quantity: quantityToSell,
+                unitPrice: product.sellingPrice,
+                total: totalAmount,
+              },
+            ],
+          },
+        },
+        include: {
+          items: { include: { product: true } },
         },
       });
 
@@ -265,8 +409,6 @@ export class ProductsService {
   }
 
   async rechargeProduct(id: number, quantityToAdd: number, userId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
     if (quantityToAdd <= 0) {
       throw new BadRequestException('La quantité rechargée doit être supérieure à 0.');
     }
@@ -285,7 +427,7 @@ export class ProductsService {
       await tx.stockMovement.create({
         data: {
           quantity: quantityToAdd,
-          type: 'RECHARGE',
+          type: MovementType.RECHARGE,
           productId: product.id,
           storeId: product.storeId,
           userId,
@@ -305,13 +447,7 @@ export class ProductsService {
     });
   }
 
-  /**
-   * Correction manuelle du stock (inventaire, casse, erreur de saisie...).
-   * delta peut être positif (+5) ou négatif (-5).
-   */
   async adjustProduct(id: number, delta: number, userId: number, note?: string) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
     if (delta === 0) {
       throw new BadRequestException('La correction ne peut pas être nulle.');
     }
@@ -335,7 +471,7 @@ export class ProductsService {
       await tx.stockMovement.create({
         data: {
           quantity: delta,
-          type: 'ADJUSTMENT',
+          type: MovementType.ADJUSTMENT,
           productId: product.id,
           storeId: product.storeId,
           userId,
@@ -367,22 +503,23 @@ export class ProductsService {
   }
 
   async findSalesByStore(storeId: number, userId: number, role: UserRole) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
-    // ADMIN/MANAGER voient toutes les ventes du magasin ; CASHIER ne voit
-    // que les siennes ("Voir ses ventes" dans la matrice de permissions).
-    const where = role === 'CASHIER' ? { storeId, userId } : { storeId };
+    const where = role === UserRole.CASHIER ? { storeId, userId } : { storeId };
 
     return this.prisma.sale.findMany({
       where,
       include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-            sellingPrice: true, 
-            purchasePrice: true,
+        user: { select: { id: true, name: true } },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                sellingPrice: true,
+                purchasePrice: true,
+              },
+            },
           },
         },
       },
@@ -395,19 +532,12 @@ export class ProductsService {
   async getStockMovements(storeId: number) {
     return this.prisma.stockMovement.findMany({
       where: { storeId },
-      include: { product: true },
+      include: { product: true, user: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  /**
-   * GET /products/:id/details
-   * Fiche complète d'un produit : informations, stock, statistiques,
-   * historique des mouvements et infos du magasin.
-   */
   async getProductDetails(id: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: {
@@ -418,15 +548,16 @@ export class ProductsService {
     });
     if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
 
-    const [salesAgg, rechargesAgg, movements] = await Promise.all([
-      this.prisma.sale.aggregate({
+    const [salesItemAgg, salesCount, rechargesAgg, movements] = await Promise.all([
+      this.prisma.saleItem.aggregate({
         where: { productId: id },
         _sum: { quantity: true },
-        _count: true,
-        _max: { createdAt: true },
+      }),
+      this.prisma.saleItem.count({
+        where: { productId: id },
       }),
       this.prisma.stockMovement.aggregate({
-        where: { productId: id, type: 'RECHARGE' },
+        where: { productId: id, type: MovementType.RECHARGE },
         _sum: { quantity: true },
         _count: true,
         _max: { createdAt: true },
@@ -438,8 +569,13 @@ export class ProductsService {
       }),
     ]);
 
+    const lastSaleItem = await this.prisma.saleItem.findFirst({
+      where: { productId: id },
+      orderBy: { sale: { createdAt: 'desc' } },
+      select: { sale: { select: { createdAt: true } } },
+    });
+
     return {
-      // Informations générales
       general: {
         name: product.name,
         sku: product.sku,
@@ -449,26 +585,25 @@ export class ProductsService {
         updatedAt: product.updatedAt,
       },
 
-      // État du stock
       stock: {
         currentStock: product.quantity,
         initialStock: product.initialStock,
         minimumStock: product.minimumStock,
+        safetyStock: product.safetyStock,
+        optimalStock: product.optimalStock ?? product.minimumStock * 3,
         stockValue: product.quantity * product.sellingPrice,
-        status: this.getStockStatus(product.quantity, product.minimumStock),
+        status: this.checkStockStatus(product),
       },
 
-      // Statistiques
       stats: {
-        totalSold: salesAgg._sum.quantity ?? 0,
-        salesCount: salesAgg._count,
+        totalSold: salesItemAgg._sum.quantity ?? 0,
+        salesCount: salesCount,
         totalRecharged: rechargesAgg._sum.quantity ?? 0,
         rechargesCount: rechargesAgg._count,
-        lastSaleDate: salesAgg._max.createdAt,
+        lastSaleDate: lastSaleItem?.sale?.createdAt ?? null,
         lastRechargeDate: rechargesAgg._max.createdAt,
       },
 
-      // Historique des mouvements
       history: movements.map((m) => ({
         type: m.type,
         typeLabel: MOVEMENT_TYPE_LABELS[m.type],
@@ -477,7 +612,6 @@ export class ProductsService {
         note: m.note,
       })),
 
-      // Informations du magasin
       store: {
         name: product.store.name,
         currency: product.store.currency,
@@ -485,20 +619,7 @@ export class ProductsService {
     };
   }
 
-  /**
-   * Rupture : plus aucune unité en stock.
-   * Faible : stock ≤ seuil minimum défini sur le produit (minimumStock).
-   * Normal : au-dessus du seuil.
-   */
-  private getStockStatus(quantity: number, minimumStock: number): 'Rupture' | 'Faible' | 'Normal' {
-    if (quantity <= 0) return 'Rupture';
-    if (quantity <= minimumStock) return 'Faible';
-    return 'Normal';
-  }
-
   async findAllByUserId(userId: number) {
-    if (!this.prisma) throw new InternalServerErrorException('PrismaService not available');
-
     return this.prisma.product.findMany({
       where: {
         deletedAt: null,

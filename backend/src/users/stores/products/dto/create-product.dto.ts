@@ -27,7 +27,18 @@ export class CreateProductDto {
 
   @IsNumber()
   @Min(0, { message: 'Le stock minimum ne peut pas être négatif.' })
+  @IsOptional()
   minimumStock?: number;
+
+  @IsNumber()
+  @Min(0, { message: 'Le stock de sécurité ne peut pas être négatif.' })
+  @IsOptional()
+  safetyStock?: number;
+
+  @IsNumber()
+  @Min(1, { message: 'Le stock optimal doit être au moins égal à 1.' })
+  @IsOptional()
+  optimalStock?: number;
 
   @IsNumber()
   @IsOptional()
