@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
   Param,
   ParseIntPipe,
@@ -49,7 +50,7 @@ export class SalesController {
    * Accessible aux Managers et Admins uniquement.
    */
   @Get('store/:storeId')
-  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @Roles(UserRole.CASHIER, UserRole.MANAGER, UserRole.ADMIN)
   async findAllByStore(
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
@@ -84,5 +85,23 @@ export class SalesController {
     }
 
     return sale;
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async delete(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any,
+  ) {
+    const sale = await this.salesService.findOne(id);
+
+    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== sale.storeId) {
+      throw new ForbiddenException(
+        'Vous ne pouvez supprimer que les factures de votre magasin.',
+      );
+    }
+
+    await this.salesService.deleteSale(id, user.id);
+    return { message: 'Facture supprimée avec succès.' };
   }
 }

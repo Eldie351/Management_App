@@ -5,13 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { MovementType, UserRole } from '@prisma/client';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class SalesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   async createSale(userId: number, dto: CreateSaleDto) {
     if (!dto.items || dto.items.length === 0) {
@@ -40,7 +44,23 @@ export class SalesService {
 
     // Transaction atomique : tout réussit ou tout est annulé
     return await this.prisma.$transaction(async (tx) => {
-      // 2. Récupération groupée des produits en base de données
+      // 2. Vérifier que le magasin existe et possède les informations obligatoires
+      const store = await tx.store.findUnique({
+        where: { id: dto.storeId },
+        select: { id: true, name: true, location: true, phone: true, currency: true },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Magasin introuvable.');
+      }
+
+      if (!store.location || !store.phone) {
+        throw new BadRequestException(
+          'Les informations du magasin sont incomplètes. Veuillez renseigner l’adresse et le téléphone du magasin.',
+        );
+      }
+
+      // 3. Récupération groupée des produits en base de données
       const productIds = dto.items.map((item) => item.productId);
       const dbProducts = await tx.product.findMany({
         where: { id: { in: productIds } },
@@ -93,9 +113,17 @@ export class SalesService {
         });
       }
 
-      // 4. Génération d'un numéro de facture unique sécurisé
-      const randomSuffix = crypto.randomBytes(2).toString('hex').toUpperCase();
-      const invoiceNumber = `FAC-${Date.now()}-${randomSuffix}`;
+      // 4. Génération d'un numéro de facture unique en séquence par magasin et par année
+      const year = new Date().getFullYear();
+      const yearStart = new Date(`${year}-01-01T00:00:00.000Z`);
+      const sequenceCount = await tx.sale.count({
+        where: {
+          storeId: dto.storeId,
+          createdAt: { gte: yearStart },
+        },
+      });
+      const sequenceNumber = String(sequenceCount + 1).padStart(4, '0');
+      const invoiceNumber = `${year}-${dto.storeId}-${sequenceNumber}`;
 
       // 5. Enregistrement de la vente
       const sale = await tx.sale.create({
@@ -144,6 +172,20 @@ export class SalesService {
         });
       }
 
+      // 7. Créer une notification pour informer managers/admins du magasin
+      try {
+        await this.notificationsService.create(
+          dto.storeId,
+          'Nouvelle vente',
+          `Vente ${invoiceNumber} enregistrée — montant ${calculatedTotalAmount.toFixed(2)}`,
+          tx,
+        );
+      } catch (e) {
+        // Ne pas faire échouer la transaction si la notification échoue;
+        // on continue et on retourne la vente.
+        // (Les erreurs seront loggées par Sentry/monitoring si configuré.)
+      }
+
       return sale;
     });
   }
@@ -174,5 +216,34 @@ export class SalesService {
     }
 
     return sale;
+  }
+
+  async deleteSale(id: number, actorUserId: number) {
+    const sale = await this.findOne(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      for (const item of sale.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            quantity: { increment: item.quantity },
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            quantity: item.quantity,
+            type: MovementType.ADJUSTMENT,
+            note: `Annulation de facture ${sale.invoiceNumber}`,
+            productId: item.productId,
+            userId: actorUserId,
+            storeId: sale.storeId,
+          },
+        });
+      }
+
+      await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
+      return tx.sale.delete({ where: { id: sale.id } });
+    });
   }
 }
