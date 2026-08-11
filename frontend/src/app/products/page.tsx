@@ -16,6 +16,7 @@ function ProductsContent() {
   const [role, setRole] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const storeId = searchParams.get('storeId');
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   // États pour les données
   const [products, setProducts] = useState<any[]>([]);
@@ -48,7 +49,7 @@ function ProductsContent() {
   const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
   const [editDescription, setEditDescription] = useState('');
-  const [editQuantity, setEditQuantity] = useState(0); 
+  const [editQuantity, setEditQuantity] = useState(0);
   const [editMinimumStock, setEditMinimumStock] = useState(5);
   const [editError, setEditError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -62,9 +63,9 @@ function ProductsContent() {
     }
 
     try {
-      const url = storeId 
-        ? `http://localhost:3001/products/store/${storeId}`
-        : `http://localhost:3001/products/user/all`;
+      const url = storeId
+        ? `${API}/products/store/${storeId}`
+        : `${API}/products/user/all`;
 
       const res = await fetch(url, {
         method: 'GET',
@@ -108,7 +109,7 @@ function ProductsContent() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch('http://localhost:3001/products', {
+      const res = await fetch(`${API}/products`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -118,7 +119,7 @@ function ProductsContent() {
           name,
           sku: sku || undefined,
           quantity: Number(quantity),
-          price: Number(price), 
+          price: Number(price),
           minimumStock: Number(minimumStock),
           description,
           storeId: Number(storeId),
@@ -151,7 +152,7 @@ function ProductsContent() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch(`http://localhost:3001/products/${editProduct.id}`, {
+      const res = await fetch(`${API}/products/${editProduct.id}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -160,9 +161,9 @@ function ProductsContent() {
         body: JSON.stringify({
           name: editName,
           sku: editSku || null,
-          price: Number(editPrice), 
+          price: Number(editPrice),
           description: editDescription || null,
-          quantity: Number(editQuantity), 
+          quantity: Number(editQuantity),
           minimumStock: Number(editMinimumStock),
         }),
       });
@@ -188,7 +189,7 @@ function ProductsContent() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch(`http://localhost:3001/products/${selectedProduct.id}/recharge`, {
+      const res = await fetch(`${API}/products/${selectedProduct.id}/recharge`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -219,7 +220,7 @@ function ProductsContent() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch(`http://localhost:3001/products/${id}`, {
+      const res = await fetch(`${API}/products/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -253,6 +254,7 @@ function ProductsContent() {
             {storeId && role !== 'CASHIER' && (
               <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
             )}
+            <Button variant="ghost" onClick={() => router.push('/receipts')}>Historique des reçus</Button>
           </div>
         </div>
 
@@ -265,6 +267,11 @@ function ProductsContent() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white shadow-sm h-10 border-gray-200 focus:border-blue-500"
           />
+        </div>
+
+        {/* Total produits affichés */}
+        <div className="mb-4 flex items-center justify-between">
+          <div className="text-sm text-slate-600">Total produits affichés: <span className="font-semibold">{filteredProducts.length}</span> / <span className="text-muted-foreground">{products.length}</span></div>
         </div>
 
         <Card>
