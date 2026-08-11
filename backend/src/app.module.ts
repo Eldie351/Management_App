@@ -14,6 +14,8 @@ import { CategoriesModule } from './users/stores/categories/categories.module';
 import { SuppliersModule } from './users/stores/suppliers/suppliers.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
+import { ReportsModule } from './reports/reports.module';
+import { ReceiptsModule } from './receipts/receipts.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { AuditLogModule } from './audit-log/audit-log.module';
     SuppliersModule,
     NotificationsModule,
     AuditLogModule,
+    ReportsModule,
+    ReceiptsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
