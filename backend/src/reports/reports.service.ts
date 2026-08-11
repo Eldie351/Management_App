@@ -10,12 +10,12 @@ export class ReportsService {
     const start = new Date(startISO);
     const end = new Date(endISO);
 
-    // total revenue (sum of sale.amount in period)
+    // total revenue (sum of sale.totalAmount in period)
     const totalAgg = await this.prisma.sale.aggregate({
-      _sum: { amount: true },
+      _sum: { totalAmount: true },
       where: { createdAt: { gte: start, lte: end } },
     });
-    const totalRevenue = totalAgg._sum.amount ? Number(totalAgg._sum.amount) : 0;
+    const totalRevenue = Number(totalAgg._sum?.totalAmount ?? 0);
 
     // inventory value: sum(quantity * unit_price) for current stock
     // Prisma aggregate doesn't support multiplication directly -> use raw SQL for Postgres
@@ -24,12 +24,11 @@ export class ReportsService {
     `;
     const inventoryValue = invRaw && invRaw[0] && invRaw[0].inventoryValue ? Number(invRaw[0].inventoryValue) : 0;
 
-    // Currency: choose a default, or derive from company/store settings.
-    // Here we attempt to read a default currency from a Settings table; fallback to 'EUR'
+    // Currency: try to read from a store's currency; fallback to 'EUR'
     let currency = 'EUR';
     try {
-      const setting = await this.prisma.setting.findUnique({ where: { key: 'default_currency' } });
-      if (setting && setting.value) currency = setting.value;
+      const s = await this.prisma.store.findFirst({ select: { currency: true } });
+      if (s?.currency) currency = s.currency as any;
     } catch {
       // ignore and fallback
     }
@@ -46,7 +45,7 @@ export class ReportsService {
     if (period === 'year') {
       // bucket by month
       const rows: any[] = await this.prisma.$queryRaw`
-        SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') as bucket, COALESCE(SUM(amount),0)::numeric as amount
+        SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') as bucket, COALESCE(SUM("totalAmount"),0)::numeric as amount
         FROM "Sale"
         WHERE "createdAt" BETWEEN ${start} AND ${end}
         GROUP BY bucket
@@ -56,7 +55,7 @@ export class ReportsService {
     } else {
       // bucket by day
       const rows: any[] = await this.prisma.$queryRaw`
-        SELECT to_char(date_trunc('day', "createdAt"), 'YYYY-MM-DD') as bucket, COALESCE(SUM(amount),0)::numeric as amount
+        SELECT to_char(date_trunc('day', "createdAt"), 'YYYY-MM-DD') as bucket, COALESCE(SUM("totalAmount"),0)::numeric as amount
         FROM "Sale"
         WHERE "createdAt" BETWEEN ${start} AND ${end}
         GROUP BY bucket
@@ -106,9 +105,9 @@ export class ReportsService {
     try {
       const grouped = await this.prisma.sale.groupBy({
         by: ['storeId'],
-        _sum: { amount: true },
+        _sum: { totalAmount: true },
         where: { createdAt: { gte: start, lte: end } },
-        orderBy: { _sum: { amount: 'desc' } },
+        orderBy: { _sum: { totalAmount: 'desc' } },
       });
       const storeIds = grouped.map(g => g.storeId);
       const stores = await this.prisma.store.findMany({
@@ -119,12 +118,12 @@ export class ReportsService {
       return grouped.map(g => ({
         storeId: g.storeId,
         storeName: storeMap.get(g.storeId) ?? 'Magasin',
-        salesAmount: g._sum.amount ? Number(g._sum.amount) : 0,
+        salesAmount: Number(g._sum?.totalAmount ?? 0),
       }));
     } catch (e) {
       // Fallback raw SQL if groupBy fails
       const rows: any[] = await this.prisma.$queryRaw`
-        SELECT s."storeId" as "storeId", st.name as "storeName", COALESCE(SUM(s.amount),0)::numeric as "salesAmount"
+        SELECT s."storeId" as "storeId", st.name as "storeName", COALESCE(SUM(s."totalAmount"),0)::numeric as "salesAmount"
         FROM "Sale" s
         LEFT JOIN "Store" st ON st.id = s."storeId"
         WHERE s."createdAt" BETWEEN ${start} AND ${end}
