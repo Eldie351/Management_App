@@ -15,7 +15,7 @@ export class ReportsService {
       _sum: { totalAmount: true },
       where: { createdAt: { gte: start, lte: end } },
     });
-    const totalRevenue = Number(totalAgg._sum?.totalAmount ?? 0);
+    const totalRevenue = totalAgg._sum?.totalAmount ? Number(totalAgg._sum.totalAmount) : 0;
 
     // inventory value: sum(quantity * unit_price) for current stock
     // Prisma aggregate doesn't support multiplication directly -> use raw SQL for Postgres
@@ -24,11 +24,12 @@ export class ReportsService {
     `;
     const inventoryValue = invRaw && invRaw[0] && invRaw[0].inventoryValue ? Number(invRaw[0].inventoryValue) : 0;
 
-    // Currency: try to read from a store's currency; fallback to 'EUR'
+    // Currency: choose a default, or derive from company/store settings.
+    // Here we attempt to read a default currency from a Settings table; fallback to 'EUR'
     let currency = 'EUR';
     try {
-      const s = await this.prisma.store.findFirst({ select: { currency: true } });
-      if (s?.currency) currency = s.currency as any;
+      const setting = await this.prisma.setting.findUnique({ where: { key: 'default_currency' } });
+      if (setting && setting.value) currency = setting.value;
     } catch {
       // ignore and fallback
     }
@@ -118,7 +119,7 @@ export class ReportsService {
       return grouped.map(g => ({
         storeId: g.storeId,
         storeName: storeMap.get(g.storeId) ?? 'Magasin',
-        salesAmount: Number(g._sum?.totalAmount ?? 0),
+        salesAmount: g._sum?.totalAmount ? Number(g._sum.totalAmount) : 0,
       }));
     } catch (e) {
       // Fallback raw SQL if groupBy fails
