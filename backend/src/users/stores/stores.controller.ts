@@ -14,6 +14,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { StoresService } from './stores.service';
+import { CreateStoreDto } from './dto/create-store.dto';
 import { Currency, UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -32,13 +33,14 @@ export class StoresController {
   @Roles(UserRole.ADMIN)
   async create(
     @CurrentUser('id') userId: number,
-    @Body() body: { name: string; location?: string; currency?: Currency },
+    @Body() createStoreDto: CreateStoreDto,
   ) {
     return this.storesService.createStore(
       userId,
-      body.name,
-      body.location,
-      body.currency,
+      createStoreDto.name,
+      createStoreDto.location,
+      createStoreDto.phone,
+      createStoreDto.currency,
     );
   }
 
@@ -87,11 +89,12 @@ export class StoresController {
   @Roles(UserRole.ADMIN)
   async update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { name?: string; location?: string; currency?: Currency },
+    @Body() body: { name?: string; location?: string; phone?: string; currency?: Currency },
   ) {
     return this.storesService.updateStore(id, {
       name: body.name,
       location: body.location,
+      phone: body.phone,
       currency: body.currency,
     });
   }

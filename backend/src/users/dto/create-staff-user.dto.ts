@@ -1,9 +1,12 @@
 import {
+  IsArray,
+  ArrayNotEmpty,
   IsEmail,
   IsIn,
   IsNotEmpty,
   IsString,
   MinLength,
+  IsInt,
 } from 'class-validator';
 import { UserRole } from '@prisma/client';
 
@@ -26,4 +29,9 @@ export class CreateStaffUserDto {
     message: 'Seuls les rôles MANAGER et CASHIER sont autorisés.',
   })
   role: UserRole;
+
+  @IsArray({ message: 'La liste des magasins doit être un tableau.' })
+  @ArrayNotEmpty({ message: 'Le personnel doit être assigné à au moins un magasin.' })
+  @IsInt({ each: true, message: 'Chaque magasin doit être un ID valide.' })
+  storeIds: number[];
 }

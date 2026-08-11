@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -324,7 +325,7 @@ export class ProductsService {
     return { message: 'Produit archivé avec succès.' };
   }
 
-  async sellProduct(id: number, quantityToSell: number, userId: number) {
+  async sellProduct(id: number, quantityToSell: number, user: any) {
     if (quantityToSell <= 0) {
       throw new BadRequestException('La quantité vendue doit être supérieure à 0.');
     }
@@ -332,6 +333,12 @@ export class ProductsService {
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { id } });
       if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
+
+      if (user.role !== UserRole.ADMIN && user.assignedStoreId !== product.storeId) {
+        throw new ForbiddenException(
+          "Vous ne pouvez effectuer de vente que dans votre magasin assigné.",
+        );
+      }
 
       if (product.quantity < quantityToSell) {
         throw new BadRequestException(
@@ -354,7 +361,7 @@ export class ProductsService {
           type: MovementType.SALE,
           productId: product.id,
           storeId: product.storeId,
-          userId,
+          userId: user.id,
           note: 'Vente produit',
         },
       });
@@ -367,7 +374,7 @@ export class ProductsService {
           totalAmount,
           paymentMethod: PaymentMethod.CASH,
           storeId: product.storeId,
-          userId,
+          userId: user.id,
           items: {
             create: [
               {
@@ -394,7 +401,7 @@ export class ProductsService {
       });
 
       await this.auditLogService.log(
-        userId,
+        user.id,
         `a vendu ${quantityToSell} unité(s) de "${product.name}"`,
         'Product',
         product.id,
@@ -548,26 +555,27 @@ export class ProductsService {
     });
     if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
 
-    const [salesItemAgg, salesCount, rechargesAgg, movements] = await Promise.all([
-      this.prisma.saleItem.aggregate({
-        where: { productId: id },
-        _sum: { quantity: true },
-      }),
-      this.prisma.saleItem.count({
-        where: { productId: id },
-      }),
-      this.prisma.stockMovement.aggregate({
-        where: { productId: id, type: MovementType.RECHARGE },
-        _sum: { quantity: true },
-        _count: true,
-        _max: { createdAt: true },
-      }),
-      this.prisma.stockMovement.findMany({
-        where: { productId: id },
-        orderBy: { createdAt: 'desc' },
-        select: { type: true, quantity: true, createdAt: true, note: true },
-      }),
-    ]);
+    const salesItemAgg = await this.prisma.saleItem.aggregate({
+      where: { productId: id },
+      _sum: { quantity: true },
+    });
+
+    const salesCount = await this.prisma.saleItem.count({
+      where: { productId: id },
+    });
+
+    const rechargesAgg = await this.prisma.stockMovement.aggregate({
+      where: { productId: id, type: MovementType.RECHARGE },
+      _sum: { quantity: true },
+      _count: true,
+      _max: { createdAt: true },
+    });
+
+    const movements = await this.prisma.stockMovement.findMany({
+      where: { productId: id },
+      orderBy: { createdAt: 'desc' },
+      select: { type: true, quantity: true, createdAt: true, note: true },
+    });
 
     const lastSaleItem = await this.prisma.saleItem.findFirst({
       where: { productId: id },
@@ -619,11 +627,53 @@ export class ProductsService {
     };
   }
 
-  async findAllByUserId(userId: number) {
+  async findAllByUser(user: { id: number; role: UserRole; assignedStoreId?: number | null }) {
+    if (user.role === UserRole.ADMIN) {
+      return this.prisma.product.findMany({
+        where: {
+          deletedAt: null,
+          store: { userId: user.id },
+        },
+        include: {
+          store: {
+            select: {
+              name: true,
+              currency: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+    }
+
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        assignedStoreId: true,
+        storeAssignments: {
+          select: {
+            storeId: true,
+          },
+        },
+      },
+    });
+
+    const storeIds = [
+      currentUser?.assignedStoreId,
+      ...(currentUser?.storeAssignments.map((assignment) => assignment.storeId) ?? []),
+    ].filter(Boolean) as number[];
+
+    const uniqueStoreIds = Array.from(new Set(storeIds));
+    if (uniqueStoreIds.length === 0) {
+      return [];
+    }
+
     return this.prisma.product.findMany({
       where: {
         deletedAt: null,
-        store: { userId },
+        storeId: { in: uniqueStoreIds },
       },
       include: {
         store: {

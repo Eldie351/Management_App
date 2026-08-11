@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserRole } from '@prisma/client';
 
 jest.mock('bcrypt', () => ({
   hash: jest.fn(),
@@ -48,7 +49,7 @@ describe('UsersService', () => {
   it('throws if email already exists', async () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 1, email: 'a@a.com' });
     await expect(service.create('a@a.com', 'A', 'pw')).rejects.toThrow(
-      'Email already in use',
+      'Email déjà utilisé.',
     );
   });
 
@@ -100,12 +101,16 @@ describe('UsersService', () => {
         name: 'Staff',
         password: hashed,
         role: 'CASHIER',
+        assignedStoreId: null,
+        createdById: undefined,
       },
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
+        assignedStoreId: true,
+        createdById: true,
         createdAt: true,
       },
     });
@@ -116,8 +121,23 @@ describe('UsersService', () => {
     const users = [{ id: 5, email: 'd@d.com' }];
     prismaMock.user.findMany.mockResolvedValue(users);
     const res = await service.findByStore(10);
+    
     expect(prismaMock.user.findMany).toHaveBeenCalledWith({
-      where: { stores: { some: { id: 10 } } },
+      where: {
+        OR: [
+          { ownedStores: { some: { id: 10 } } },
+          { assignedStoreId: 10 },
+        ],
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        assignedStoreId: true,
+        createdById: true,
+        createdAt: true,
+      },
     });
     expect(res).toEqual(users);
   });

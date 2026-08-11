@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Currency } from '@prisma/client';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateStoreDto {
   @IsString()
@@ -6,6 +7,14 @@ export class CreateStoreDto {
   name: string;
 
   @IsString()
+  @IsNotEmpty({ message: "L'adresse du magasin est obligatoire." })
+  location: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Le téléphone du magasin est obligatoire.' })
+  phone: string;
+
+  @IsEnum(Currency, { message: 'La devise du magasin est invalide.' })
   @IsOptional()
-  location?: string;
+  currency?: Currency;
 }

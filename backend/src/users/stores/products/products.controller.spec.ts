@@ -1,7 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
-import { SalesController } from '../../sales/sales.controller';
-import { SalesService } from '../../sales/sales.service';
+import { SalesController } from '../../../sales/sales.controller';
+import { SalesService } from '../../../sales/sales.service';
 import { ROLES_KEY } from '../../../common/decorators/roles.decorator';
 
 describe('SalesController permissions', () => {
@@ -11,20 +11,24 @@ describe('SalesController permissions', () => {
     reflector = new Reflector();
   });
 
-  it('restricts the global sales view to admins and managers, and exposes a cashier self-sales route', () => {
-    const controller = new SalesController({} as unknown as SalesService);
-
+  it('restricts global sales view to managers/admins, and allows cashiers for single sales/invoices', () => {
+    // 1. Vérification de la méthode de vue globale (findAllByStore)
     const globalSalesRoles = reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
-      SalesController.prototype.getStoreSales,
+      SalesController.prototype.findAllByStore,
       SalesController,
     ]);
 
-    const mySalesRoles = reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
-      SalesController.prototype.getMyStoreSales,
+    // 2. Vérification de la méthode de consultation de facture (findOne)
+    const singleSaleRoles = reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
+      SalesController.prototype.findOne,
       SalesController,
     ]);
 
-    expect(globalSalesRoles).toEqual([UserRole.ADMIN, UserRole.MANAGER]);
-    expect(mySalesRoles).toEqual([UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER]);
+    expect(globalSalesRoles).toEqual([UserRole.MANAGER, UserRole.ADMIN]);
+    expect(singleSaleRoles).toEqual([
+      UserRole.CASHIER,
+      UserRole.MANAGER,
+      UserRole.ADMIN,
+    ]);
   });
 });

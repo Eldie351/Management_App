@@ -52,6 +52,14 @@ export class UsersController {
   }
 
   /**
+   * Lister les comptes managers et caissiers créés par l'administrateur.
+   */
+  @Get('staff')
+  async findStaffCreatedByAdmin(@CurrentUser('id') adminId: number) {
+    return this.usersService.findCreatedByAdmin(adminId);
+  }
+
+  /**
    * Modifier le rôle d'un utilisateur.
    */
   @Patch(':id/role')

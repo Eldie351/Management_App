@@ -101,8 +101,21 @@ export class ProductsController {
     return this.productsService.findOutOfStock(user.id, targetStoreId);
   }
 
+  @Get('store/:storeId/restock-suggestions')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async getRestockSuggestions(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @CurrentUser() user: any,
+  ) {
+    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
+      throw new ForbiddenException('Accès refusé aux données de ce magasin.');
+    }
+
+    return this.productsService.findLowStockProductsByStore(storeId);
+  }
+
   @Get(':id/details')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async getDetails(@Param('id', ParseIntPipe) id: number) {
     return this.productsService.getProductDetails(id);
   }
@@ -119,10 +132,33 @@ export class ProductsController {
     return this.productsService.findAllByStore(storeId);
   }
 
+  @Get('store/:storeId/sales')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  async findSalesByStore(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @CurrentUser() user: any,
+  ) {
+    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
+      throw new ForbiddenException('Accès refusé aux ventes de ce magasin.');
+    }
+
+    return this.productsService.findSalesByStore(storeId, user.id, user.role);
+  }
+
+  @Patch(':id/stock')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  async sellProduct(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('quantity', ParseIntPipe) quantity: number,
+    @CurrentUser() user: any,
+  ) {
+    return this.productsService.sellProduct(id, quantity, user);
+  }
+
   @Get('user/all')
-  @Roles(UserRole.ADMIN)
-  async findAllByUser(@CurrentUser('id') userId: number) {
-    return this.productsService.findAllByUserId(userId);
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  async findAllByUser(@CurrentUser() user: any) {
+    return this.productsService.findAllByUser(user);
   }
 
   // --- Mouvements de stock ----------------------------------------------

@@ -40,7 +40,7 @@ export class UsersService {
       name: string;
       password: string;
       role: UserRole;
-      storeId?: number;
+      storeIds?: number[];
     },
     creatorId: number,
   ) {
@@ -57,12 +57,14 @@ export class UsersService {
       throw new ConflictException('Email déjà utilisé.');
     }
 
-    if (data.storeId) {
-      const storeExists = await this.prisma.store.findUnique({
-        where: { id: data.storeId },
+    const uniqueStoreIds = Array.from(new Set(data.storeIds || []));
+    if (uniqueStoreIds.length > 0) {
+      const stores = await this.prisma.store.findMany({
+        where: { id: { in: uniqueStoreIds } },
       });
-      if (!storeExists) {
-        throw new NotFoundException('Le magasin spécifié est introuvable.');
+
+      if (stores.length !== uniqueStoreIds.length) {
+        throw new NotFoundException('Un ou plusieurs magasins spécifiés sont introuvables.');
       }
     }
 
@@ -74,8 +76,11 @@ export class UsersService {
         name: data.name,
         password: hashed,
         role: data.role,
-        assignedStoreId: data.storeId ?? null,
+        assignedStoreId: uniqueStoreIds[0] ?? null,
         createdById: creatorId,
+        storeAssignments: uniqueStoreIds.length
+          ? { create: uniqueStoreIds.map((storeId) => ({ storeId })) }
+          : undefined,
       },
       select: {
         id: true,
@@ -85,6 +90,17 @@ export class UsersService {
         assignedStoreId: true,
         createdById: true,
         createdAt: true,
+        storeAssignments: {
+          select: {
+            store: {
+              select: {
+                id: true,
+                name: true,
+                location: true,
+              },
+            },
+          },
+        },
       },
     });
   }
@@ -106,7 +122,18 @@ export class UsersService {
         role: true,
         createdAt: true,
         assignedStore: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, location: true },
+        },
+        storeAssignments: {
+          select: {
+            store: {
+              select: {
+                id: true,
+                name: true,
+                location: true,
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
