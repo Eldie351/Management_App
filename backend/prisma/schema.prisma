@@ -57,6 +57,9 @@ model User {
   assignedStoreId Int?
   assignedStore   Store?    @relation("AssignedEmployees", fields: [assignedStoreId], references: [id], onDelete: SetNull)
 
+  // Magasins supplémentaires ou multiples assignés via une relation explicite
+  storeAssignments StoreAssignment[] @relation("UserStoreAssignments")
+
   resetToken      ResetToken?
   stockMovements  StockMovement[]
   sales           Sale[]
@@ -75,6 +78,7 @@ model Store {
   id             Int             @id @default(autoincrement())
   name           String
   location       String?
+  phone          String?
   currency       Currency        @default(XOF)
   createdAt      DateTime        @default(now())
 
@@ -85,12 +89,30 @@ model Store {
   // Employés rattachés (Caissiers, Managers)
   employees      User[]          @relation("AssignedEmployees")
 
+  // Assignations de personnel supplémentaire ou multi-magasin
+  assignedUsers  StoreAssignment[] @relation("StoreAssignments")
+
   products       Product[]
   sales          Sale[]
   categories     Category[]
   suppliers      Supplier[]
   stockMovements StockMovement[]
   notifications  Notification[]
+}
+
+model StoreAssignment {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+
+  userId    Int
+  user      User     @relation("UserStoreAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  storeId   Int
+  store     Store    @relation("StoreAssignments", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@index([userId])
+  @@index([storeId])
 }
 
 model Product {
@@ -128,7 +150,7 @@ model Product {
   // Unicités relatives à un magasin
   @@unique([sku, storeId])
   @@unique([barcode, storeId])
-  @@index([storeId])
+  @@index([storeId, quantity])
 }
 
 model Category {
@@ -185,7 +207,7 @@ model Sale {
 
   items         SaleItem[]
 
-  @@index([storeId])
+  @@index([storeId, createdAt])
   @@index([userId])
 }
 
