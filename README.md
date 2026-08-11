@@ -7,200 +7,157 @@ L'objectif est de fournir une solution simple, rapide et accessible permettant a
 
 ---
 
-## Problème
+## Résumé des modifications récentes (Ajouts par Copilot)
 
-De nombreux commerçants gèrent encore leurs activités à l'aide de :
+Sur la branche `feature/reports-stats-prisma-nextjs` j'ai intégré plusieurs fonctionnalités front + back pour la page "Rapports & Statistiques" ainsi que l'historique des reçus :
 
-- Cahiers
-- Tableurs Excel
-- Calculatrices
-- Méthodes manuelles
+- Frontend (Next.js / Tailwind):
+  - Composant interactif `ReportsStats` (frontend/src/components/ReportsStats.tsx) :
+    - KPIs (Chiffre d'Affaires, Valeur d'Inventaire)
+    - Histogramme des ventes (Semaine/Mois/Année) avec drill-down jour
+    - Donut chart : performance des magasins (clic → /stores/[id]/stats)
+    - Skeletons pendant chargement et messages "Aucune donnée disponible"
+  - Intégration page statistiques : `frontend/src/app/stats/page.tsx` (usage du composant)
+  - Affichage du nombre total de produits sur la page produits : `frontend/src/app/products/page.tsx`
+  - Nouvelle page Historique des reçus :
+    - Liste : `frontend/src/app/receipts/page.tsx`
+    - Détail : `frontend/src/app/receipts/[id]/page.tsx`
 
-Cela entraîne :
+- Backend (NestJS / Prisma):
+  - Module Reports (controller/service/module) : `backend/src/reports/*`
+    - Endpoints exposés utilisés par le frontend:
+      - GET /api/reports/kpis?start=ISO&end=ISO
+      - GET /api/reports/sales/series?period=week|month|year&start=ISO&end=ISO
+      - GET /api/reports/sales/day?date=YYYY-MM-DD
+      - GET /api/reports/stores?start=ISO&end=ISO
+  - Module Receipts (controller/service/module) : `backend/src/receipts/*`
+    - Endpoints :
+      - GET /receipts
+      - GET /receipts/store/:storeId
+      - GET /receipts/:id
+  - `backend/src/prisma/prisma.service.ts` (singleton Prisma wrapper)
+  - Correction du cron d'ExchangeRate pour éviter exécutions concurrentes
+  - Corrections et sécurisation des requêtes SQL raw (paramétrage)
 
-- Des erreurs de stock
-- Des ruptures de produits
-- Une mauvaise visibilité des ventes
-- Des pertes financières
-- Des difficultés à suivre les performances du commerce
-
----
-
-## Objectifs du projet
-
-Permettre à un commerçant de :
-
-- Gérer ses produits
-- Gérer ses catégories
-- Enregistrer ses ventes
-- Mettre à jour automatiquement son stock
-- Consulter son chiffre d'affaires
-- Identifier rapidement les produits en rupture
-
----
-
-## Technologies utilisées
-
-### Frontend
-
-- Next.js
-- TypeScript
-- Tailwind CSS
-- Shadcn UI
-
-### Backend
-
-- NestJS
-- JWT Authentication
-
-### Base de données
-
-- PostgreSQL
-- Prisma ORM
-
-### Outils
-
-- Git
-- GitHub
-- Docker (à venir)
+- Branche contenant les changements : `feature/reports-stats-prisma-nextjs`
+  - Plusieurs commits dont :
+    - chore(reports): integrate reports into frontend and backend structure
+    - fix(reports): make store select clickable and use safe parameterized raw queries for sales series
+    - fix(exchange-rate): prevent concurrent cron executions by adding isRunning guard
+    - feat(receipts): add receipts endpoints and frontend detail page
 
 ---
 
-## Fonctionnalités V1
+## Guide rapide - exécution locale (dev)
 
-### Authentification
+Prérequis : Node >= 16, pnpm/npm, PostgreSQL (ou DB compatible), git
 
-- Connexion administrateur
-- Gestion sécurisée des sessions
+1) Récupérer la branche de travail :
 
-### Gestion des catégories
-
-- Ajouter une catégorie
-- Modifier une catégorie
-- Supprimer une catégorie
-
-### Gestion des produits
-
-- Ajouter un produit
-- Modifier un produit
-- Supprimer un produit
-- Consulter le stock disponible
-
-### Gestion des ventes
-
-- Créer une vente
-- Ajouter plusieurs produits
-- Décrémentation automatique du stock
-
-### Tableau de bord
-
-- Nombre de ventes
-- Chiffre d'affaires journalier
-- Produits en stock faible
-- Nombre total de produits
-
----
-
-## Fonctionnalités futures
-
-### V2
-
-- Gestion des fournisseurs
-- Gestion des dépenses
-- Gestion des rôles
-- Rapports PDF
-- Export Excel
-- Alertes de stock
-
-### V3
-
-- Multi-boutiques
-- Notifications WhatsApp
-- Mobile Money
-- Application mobile
-- Gestion des crédits clients
-
----
-
-## Modèle de données
-
-### User
-
-- id
-- fullname
-- email
-- password
-- role
-
-### Category
-
-- id
-- name
-- description
-
-### Product
-
-- id
-- name
-- description
-- purchasePrice
-- sellingPrice
-- quantity
-- minimumQuantity
-
-### Sale
-
-- id
-- totalAmount
-- createdAt
-
-### SaleItem
-
-- id
-- quantity
-- unitPrice
-- subtotal
-
----
-
-## Architecture
-
-```text
-
+```bash
+git fetch origin
+git checkout feature/reports-stats-prisma-nextjs
 ```
 
----
+2) Installer dépendances
 
-## État du projet
-
-Version actuelle :
-
-```text
-Version 1 en cours
+- Frontend
+```bash
+cd frontend
+npm install
 ```
 
-Progression :
+- Backend
+```bash
+cd backend
+npm install
+```
 
-- [x] Analyse du besoin
-- [x] Conception fonctionnelle
-- [ ] Initialisation Frontend
-- [ ] Initialisation Backend
-- [ ] Configuration PostgreSQL
-- [ ] Configuration Prisma
-- [ ] Authentification
-- [ ] Gestion des catégories
-- [ ] Gestion des produits
-- [ ] Gestion des ventes
-- [ ] Dashboard
-- [ ] Déploiement
+3) Variables d'environnement (exemples)
+
+- Frontend: `frontend/.env.local`
+```
+NEXT_PUBLIC_API_URL=http://localhost:3001
+```
+
+- Backend: `backend/.env`
+```
+DATABASE_URL=postgresql://user:password@localhost:5432/octostock
+JWT_SECRET=your_jwt_secret
+```
+
+4) Prisma (si vous avez modifié le schema)
+
+```bash
+cd backend
+npx prisma generate
+# si vous avez ajouté les modèles Receipt, créer une migration:
+# npx prisma migrate dev --name add_receipts
+```
+
+5) Lancer les services
+
+- Backend (dev)
+```bash
+cd backend
+npm run start:dev
+```
+
+- Frontend (dev)
+```bash
+cd frontend
+npm run dev
+# ouvrez http://localhost:3000
+```
+
+6) Pages à tester
+
+- /stats → page Rapports & Statistiques
+- /products → inventaire (vérifier le compteur total produits)
+- /receipts → liste des reçus
+- /receipts/[id] → détail d'un reçu
+
+---
+
+## Endpoints (récapitulatif)
+
+Rapports (backend):
+- GET /api/reports/kpis?start=ISO&end=ISO
+  - Response: { totalRevenue: number, inventoryValue: number, currency: string }
+- GET /api/reports/sales/series?period=week|month|year&start=ISO&end=ISO
+  - Response: [{ date: 'YYYY-MM-DD'|'YYYY-MM', amount: number }, ...]
+- GET /api/reports/sales/day?date=YYYY-MM-DD
+  - Response: [{ id, productName, quantity, time, amount }, ...]
+- GET /api/reports/stores?start=ISO&end=ISO
+  - Response: [{ storeId, storeName, salesAmount }, ...]
+
+Reçus (backend):
+- GET /receipts
+- GET /receipts/store/:storeId
+- GET /receipts/:id
+
+(Remarques: les réponses convertissent les `Decimal` Prisma en `number` pour faciliter l'affichage.)
+
+---
+
+## Notes opérationnelles & sécurité
+
+- Les requêtes raw SQL incluent des fonctions Postgres (date_trunc, to_char, ::numeric). Si votre base est MySQL, adaptez les requêtes.
+- Les endpoints doivent être protégés par des guards/auth (JWT). Le frontend envoie un token depuis localStorage; le backend doit valider.
+- Limitez les périodes demandées côté serveur pour éviter de lourdes agrégations (ex: max 2 ans).
+- Les modifications sont sur une branche feature : testez en local et/ou via une PR preview avant de merger en production.
+
+---
+
+## Documentation détaillée
+
+Voir `docs/REPORTS_AND_RECEIPTS.md` pour la description technique complète (endpoints, exemples d'API, snippet Prisma schema pour Receipt, instructions de migration, mapping des composants frontend).
 
 ---
 
 ## Auteur
 
 Kimberly Degnon
-
-Étudiante en informatique passionnée par le développement logiciel, les systèmes backend et l'entrepreneuriat numérique.
 
 ---
 
