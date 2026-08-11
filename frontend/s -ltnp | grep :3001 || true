@@ -1,0 +1,28 @@
+                                             Table "public.User"
+     Column      |              Type              | Collation | Nullable |              Default               
+-----------------+--------------------------------+-----------+----------+------------------------------------
+ id              | integer                        |           | not null | nextval('"User_id_seq"'::regclass)
+ email           | text                           |           | not null | 
+ name            | text                           |           | not null | 
+ password        | text                           |           | not null | 
+ role            | "UserRole"                     |           | not null | 'ADMIN'::"UserRole"
+ resetTokenExp   | timestamp(3) without time zone |           |          | 
+ createdAt       | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt       | timestamp(3) without time zone |           | not null | 
+ assignedStoreId | integer                        |           |          | 
+ createdById     | integer                        |           |          | 
+Indexes:
+    "User_pkey" PRIMARY KEY, btree (id)
+    "User_email_key" UNIQUE, btree (email)
+Foreign-key constraints:
+    "User_assignedStoreId_fkey" FOREIGN KEY ("assignedStoreId") REFERENCES "Store"(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "User_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE SET NULL
+Referenced by:
+    TABLE ""AuditLog"" CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE RESTRICT
+    TABLE ""ResetToken"" CONSTRAINT "ResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE ""Sale"" CONSTRAINT "Sale_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE RESTRICT
+    TABLE ""StockMovement"" CONSTRAINT "StockMovement_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE RESTRICT
+    TABLE ""StoreAssignment"" CONSTRAINT "StoreAssignment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE ""Store"" CONSTRAINT "Store_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE ""User"" CONSTRAINT "User_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE SET NULL
+

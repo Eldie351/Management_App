@@ -4,15 +4,18 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 // Remplacez votre ligne 5 par celle-ci (sans les accolades) :
 import Sidebar from '@/components/Sidebar';
+import { getStoredUserRole } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function ProfilPage() {
   const router = useRouter();
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
 
   // Charger les données du profil utilisateur
   const fetchProfile = async () => {
@@ -23,7 +26,7 @@ export default function ProfilPage() {
     }
 
     try {
-      const res = await fetch('http://localhost:3001/auth/profil', {
+      const res = await fetch(`${API}/auth/profil`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -42,6 +45,7 @@ export default function ProfilPage() {
   };
 
   useEffect(() => {
+    setRole(getStoredUserRole());
     fetchProfile();
   }, [router]);
 
@@ -57,7 +61,7 @@ export default function ProfilPage() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch('http://localhost:3001/auth/compte', {
+      const res = await fetch(`${API}/auth/compte`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -175,7 +179,8 @@ export default function ProfilPage() {
             </Card>
 
             {/* ZONE DANGER (SUPPRESSION DE COMPTE) */}
-            <Card className="border-red-200 bg-red-50/30">
+            {role !== 'CASHIER' && (
+              <Card className="border-red-200 bg-red-50/30">
               <CardHeader>
                 <CardTitle className="text-red-600 text-base">Zone de danger</CardTitle>
                 <CardDescription className="text-red-500 text-xs">Ces actions suppriment définitivement vos données.</CardDescription>
@@ -190,7 +195,8 @@ export default function ProfilPage() {
                   {isDeleting ? 'Suppression en cours...' : 'Supprimer mon compte'}
                 </Button>
               </CardContent>
-            </Card>
+              </Card>
+            )}
           </div>
         </div>
       </main>

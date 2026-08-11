@@ -1,0 +1,61 @@
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  MANAGER = 'MANAGER',
+  CASHIER = 'CASHIER',
+}
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  assignedStoreId?: number | null;
+}
+
+export interface StoreStats {
+  storeId: number;
+  inventory: {
+    totalProducts: number;
+    totalStockValue: number;
+    outOfStockCount: number;
+    criticalStockCount: number;
+    warningStockCount: number;
+    normalStockCount: number;
+    stockoutRate: number;
+  };
+  restockSummary: {
+    productsToRestockCount: number;
+    totalUnitsToOrder: number;
+  };
+  salesSummary: {
+    totalRevenue: number;
+    totalSalesCount: number;
+    averageBasket: number;
+  };
+}
+
+export interface PeriodSaleItem {
+  id: number;
+  totalAmount: number;
+  createdAt: string;
+  storeId: number;
+  userId: number;
+}
+
+export interface PeriodSalesResponse {
+  periodInfo: {
+    requestedPeriod: 'weekly' | 'monthly' | 'yearly';
+    startDate: string;
+    endDate: string;
+  };
+  summary: {
+    totalRevenue: number;
+    totalSales: number;
+  };
+  pagination: {
+    currentPage: number;
+    totalPages: number;
+    hasNextPage: boolean;
+  };
+  data: PeriodSaleItem[];
+}

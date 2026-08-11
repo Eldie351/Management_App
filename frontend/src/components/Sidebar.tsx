@@ -10,6 +10,7 @@ const adminItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/products', label: 'Produits', icon: Package },
   { href: '/sales', label: 'Ventes', icon: ShoppingCart },
+  { href: '/staff', label: 'Staff', icon: Users },
   { href: '/stats', label: 'Rapports', icon: BarChart3 },
   { href: '/alerts', label: 'Alertes', icon: AlertTriangle },
   { href: '/profil', label: 'Profil', icon: User },

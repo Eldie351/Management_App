@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { getStoredUserRole } from '@/lib/auth';
 import { useParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,7 @@ export default function ProductDetailsPage() {
   const productId = params?.id;
 
   const [details, setDetails] = useState<ProductDetailsResponse | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -71,6 +73,7 @@ export default function ProductDetailsPage() {
   const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
+    setRole(getStoredUserRole());
     const fetchDetails = async () => {
       const token = localStorage.getItem('access_token');
       if (!token) {
@@ -111,6 +114,13 @@ export default function ProductDetailsPage() {
       fetchDetails();
     }
   }, [productId, router]);
+
+  // If the user is a cashier, forbid access to the product details page
+  useEffect(() => {
+    if (role === 'CASHIER') {
+      router.push('/products');
+    }
+  }, [role, router]);
 
   const handleDeleteProduct = async () => {
     if (!productId) return;
@@ -260,11 +270,15 @@ export default function ProductDetailsPage() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => router.push('/products')}>← Retour à l’inventaire</Button>
-            <Button onClick={() => setIsEditModalOpen(true)}>Modifier</Button>
-            <Button variant="secondary" onClick={() => setIsRechargeModalOpen(true)}>Recharger</Button>
-            <Button variant="destructive" onClick={handleDeleteProduct} disabled={isDeleting}>
-              {isDeleting ? 'Suppression...' : 'Supprimer'}
-            </Button>
+            {role !== 'CASHIER' && (
+              <>
+                <Button onClick={() => setIsEditModalOpen(true)}>Modifier</Button>
+                <Button variant="secondary" onClick={() => setIsRechargeModalOpen(true)}>Recharger</Button>
+                <Button variant="destructive" onClick={handleDeleteProduct} disabled={isDeleting}>
+                  {isDeleting ? 'Suppression...' : 'Supprimer'}
+                </Button>
+              </>
+            )}
           </div>
         </div>
 

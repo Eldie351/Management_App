@@ -13,6 +13,7 @@ const SUPPORTED_CURRENCIES = ['XOF', 'EUR', 'USD', 'GBP', 'NGN'];
 
 export default function StatsPage() {
   const router = useRouter();
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
   const [profile, setProfile] = useState<any>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('XOF');
@@ -30,7 +31,7 @@ export default function StatsPage() {
   // Fetch exchange rates
   const fetchExchangeRates = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/exchange-rates');
+      const response = await fetch(`${API}/api/exchange-rates`);
       const payload = await response.json();
 
       const ratesArray = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
@@ -74,7 +75,7 @@ export default function StatsPage() {
       return;
     }
 
-    fetch('http://localhost:3001/auth/profil', {
+    fetch(`${API}/auth/profil`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     })
@@ -93,7 +94,7 @@ export default function StatsPage() {
   const fetchAllStoresStats = async (stores: any[], token: string) => {
     try {
       const storesStatsPromises = stores.map((store) =>
-        fetch(`http://localhost:3001/stores/${store.id}/stats`, {
+        fetch(`${API}/stores/${store.id}/stats`, {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${token}` },
         })
@@ -129,7 +130,7 @@ export default function StatsPage() {
     if (!selectedStoreId) return;
     const token = localStorage.getItem('access_token');
 
-    fetch(`http://localhost:3001/stores/${selectedStoreId}/stats`, {
+    fetch(`${API}/stores/${selectedStoreId}/stats`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     })
@@ -145,7 +146,7 @@ export default function StatsPage() {
       })
       .catch((err) => console.error(err));
 
-    fetch(`http://localhost:3001/products/store/${selectedStoreId}/sales`, {
+    fetch(`${API}/products/store/${selectedStoreId}/sales`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     })

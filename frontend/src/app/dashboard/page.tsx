@@ -26,6 +26,7 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newStoreName, setNewStoreName] = useState("");
   const [newStoreLocation, setNewStoreLocation] = useState("");
+  const [newStorePhone, setNewStorePhone] = useState("");
   const [newStoreCurrency, setNewStoreCurrency] = useState("XOF");
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,6 +38,7 @@ export default function DashboardPage() {
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPassword, setStaffPassword] = useState("");
   const [staffRole, setStaffRole] = useState<"MANAGER" | "CASHIER">("MANAGER");
+  const [staffStoreIds, setStaffStoreIds] = useState<number[]>([]);
 
   const router = useRouter();
 
@@ -74,6 +76,7 @@ export default function DashboardPage() {
         productsRes.json(),
       ]);
       setProfile({ stores: storesData, products: productsData });
+      setStaffStoreIds(storesData?.[0] ? [storesData[0].id] : []);
       setLoading(false);
     } catch (err: any) {
       setError(err.message);
@@ -102,6 +105,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           name: newStoreName,
           location: newStoreLocation,
+          phone: newStorePhone,
           currency: newStoreCurrency,
         }),
       });
@@ -111,6 +115,7 @@ export default function DashboardPage() {
 
       setNewStoreName("");
       setNewStoreLocation("");
+      setNewStorePhone("");
       setNewStoreCurrency("XOF");
       setIsModalOpen(false);
       fetchProfileData();
@@ -150,6 +155,10 @@ export default function DashboardPage() {
     const token = localStorage.getItem("access_token");
 
     try {
+      if (staffStoreIds.length === 0) {
+        throw new Error('Veuillez assigner au moins un magasin à ce collaborateur.');
+      }
+
       const response = await fetch("http://localhost:3001/users/staff", {
         method: "POST",
         headers: {
@@ -161,6 +170,7 @@ export default function DashboardPage() {
           email: staffEmail,
           password: staffPassword,
           role: staffRole,
+          storeIds: staffStoreIds,
         }),
       });
 
@@ -172,6 +182,7 @@ export default function DashboardPage() {
       setStaffEmail("");
       setStaffPassword("");
       setStaffRole("MANAGER");
+      setStaffStoreIds(profile.stores?.[0] ? [profile.stores[0].id] : []);
       setIsStaffModalOpen(false);
       setStaffFormSuccess(
         `Compte ${data.role.toLowerCase()} créé avec succès pour ${data.name}.`,
@@ -284,14 +295,16 @@ export default function DashboardPage() {
                       <h3 className="font-semibold text-lg group-hover:text-blue-600 transition-colors pr-6">
                         {store.name}
                       </h3>
-                      <button
-                        onClick={(e) =>
-                          handleDeleteStore(e, store.id, store.name)
-                        }
-                        className="text-gray-400 hover:text-red-500 absolute top-4 right-4"
-                      >
-                        🗑️
-                      </button>
+                      {role !== 'CASHIER' && (
+                        <button
+                          onClick={(e) =>
+                            handleDeleteStore(e, store.id, store.name)
+                          }
+                          className="text-gray-400 hover:text-red-500 absolute top-4 right-4"
+                        >
+                          🗑️
+                        </button>
+                      )}
                     </div>
                     <p className="text-sm text-gray-500 mt-1">
                       📍 {store.location || "Emplacement non spécifié"}
@@ -363,6 +376,36 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label>Magasins assignés *</Label>
+                  <div className="max-h-52 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
+                    {profile.stores?.length ? (
+                      profile.stores.map((store: any) => (
+                        <label key={store.id} className="flex items-center gap-3 text-sm text-gray-700 py-1">
+                          <input
+                            type="checkbox"
+                            checked={staffStoreIds.includes(store.id)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setStaffStoreIds((current) =>
+                                checked
+                                  ? [...current, store.id]
+                                  : current.filter((id) => id !== store.id),
+                              );
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span>
+                            {store.name}
+                            {store.location ? ` — ${store.location}` : ''}
+                          </span>
+                        </label>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-400">Aucun magasin disponible.</p>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="staffRole">Rôle *</Label>
                   <select
                     id="staffRole"
@@ -424,12 +467,24 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="storeLocation">Adresse / Emplacement</Label>
+                  <Label htmlFor="storeLocation">Adresse / Emplacement *</Label>
                   <Input
                     id="storeLocation"
-                    placeholder="Ex: Dakar, Sénégal"
+                    placeholder="Ex: Quartier X / Adresse - Ville, Bénin"
                     value={newStoreLocation}
                     onChange={(e) => setNewStoreLocation(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="storePhone">Téléphone du magasin *</Label>
+                  <Input
+                    id="storePhone"
+                    placeholder="Ex: (+229) 1234 5678"
+                    value={newStorePhone}
+                    onChange={(e) => setNewStorePhone(e.target.value)}
+                    required
                   />
                 </div>
 

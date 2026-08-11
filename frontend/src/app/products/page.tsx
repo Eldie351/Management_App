@@ -9,9 +9,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { getStockLabel, getStockStatus } from '@/lib/stock-status';
+import { getStoredUserRole } from '@/lib/auth';
 
 function ProductsContent() {
   const router = useRouter();
+  const [role, setRole] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const storeId = searchParams.get('storeId');
 
@@ -83,6 +85,7 @@ function ProductsContent() {
   };
 
   useEffect(() => {
+    setRole(getStoredUserRole());
     fetchProducts();
   }, [storeId, router]);
 
@@ -245,9 +248,9 @@ function ProductsContent() {
               {storeId ? `Entrepôt référencé : #${storeId}` : 'Consultez la totalité des articles en stock'}
             </p>
           </div>
-          <div className="space-x-4">
+            <div className="space-x-4">
             <Button variant="outline" onClick={() => router.push('/dashboard')}>← Tableau de bord</Button>
-            {storeId && (
+            {storeId && role !== 'CASHIER' && (
               <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
             )}
           </div>
@@ -314,14 +317,18 @@ function ProductsContent() {
                       {Number(product.sellingPrice ?? 0).toFixed(2)} <span className="text-xs text-blue-600 font-sans uppercase">{product.currency || 'XOF'}</span>
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="border-blue-200 hover:bg-blue-50 text-blue-600 font-medium"
-                        onClick={() => router.push(`/products/${product.id}`)}
-                      >
-                        Détails
-                      </Button>
+                      {role !== 'CASHIER' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-blue-200 hover:bg-blue-50 text-blue-600 font-medium"
+                          onClick={() => router.push(`/products/${product.id}`)}
+                        >
+                          Détails
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
