@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Menu from '../../components/Menu';
@@ -31,6 +31,27 @@ function getEndOfWeek(d: Date) {
   return e;
 }
 
+async function safeFetchJson(url: string) {
+  try {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // sometimes already JSON, fallback to res.json()
+      try {
+        return await res.json();
+      } catch (e2) {
+        return null;
+      }
+    }
+  } catch (e) {
+    return null;
+  }
+}
+
 export default function Page() {
   const router = useRouter();
   const [period, setPeriod] = useState<'week'|'month'|'year'>('week');
@@ -43,6 +64,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [dayDetails, setDayDetails] = useState<any[] | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedStoreId, setSelectedStoreId] = useState<number | ''>('');
 
   // helper to format dates to ISO for backend
   const iso = (d: Date) => d.toISOString();
@@ -70,13 +92,19 @@ export default function Page() {
     async function load() {
       setLoading(true);
       try {
+        const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
+        const kUrl = `/api/reports/kpis?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}${storeParam}`;
+        const sUrl = `/api/reports/sales/series?period=${period}&start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}${storeParam}`;
+        const stUrl = `/api/reports/stores?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}`;
+
         const [k, s, st] = await Promise.all([
-          fetch(`/reports/kpis?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}`).then(r => r.json()),
-          fetch(`/reports/sales-series?period=${period}&start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}`).then(r => r.json()),
-          fetch(`/reports/stores-perf?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}`).then(r => r.json()),
+          safeFetchJson(kUrl),
+          safeFetchJson(sUrl),
+          safeFetchJson(stUrl),
         ]);
+
         setKpis(k);
-        // normalize series to {date, amount}
+        // normalize series to array
         setSalesSeries(Array.isArray(s) ? s : (s?.data ?? []));
         setStoresPerf(Array.isArray(st) ? st : (st?.data ?? []));
       } catch (e) {
@@ -86,24 +114,25 @@ export default function Page() {
       }
     }
     load();
-  }, [period, startDate, endDate]);
+  }, [period, startDate, endDate, selectedStoreId]);
 
   const colors = ['#60A5FA', '#34D399', '#F59E0B', '#F97316', '#EF4444'];
 
   const onBarClick = async (bucketDate: string) => {
     // fetch sales day details
     try {
-      const res = await fetch(`/reports/sales-day?date=${encodeURIComponent(bucketDate)}`);
-      const data = await res.json();
-      setDayDetails(Array.isArray(data) ? data : (data?.data ?? []));
+      const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
+      const res = await safeFetchJson(`/api/reports/sales/day?date=${encodeURIComponent(bucketDate)}${storeParam}`);
+      setDayDetails(Array.isArray(res) ? res : (res?.data ?? []));
       setSelectedDay(bucketDate);
-      // scroll to details panel
       const el = document.getElementById('day-details');
       if (el) el.scrollIntoView({ behavior: 'smooth' });
     } catch (e) {
       console.error(e);
     }
   };
+
+  const currencyFormat = (value: number, currency = 'EUR') => new Intl.NumberFormat('fr-FR', { style: 'currency', currency }).format(value ?? 0);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -123,7 +152,7 @@ export default function Page() {
             ) : (
               <>
                 <div className="text-sm text-slate-500">Chiffre d'Affaires Réel</div>
-                <div className="mt-2 text-2xl font-bold">{kpis ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: kpis.currency ?? 'EUR' }).format(kpis.totalRevenue ?? 0) : '—'}</div>
+                <div className="mt-2 text-2xl font-bold">{kpis ? currencyFormat(Number(kpis.totalRevenue ?? 0), kpis.currency ?? 'EUR') : '—'}</div>
               </>
             )}
           </div>
@@ -137,7 +166,7 @@ export default function Page() {
             ) : (
               <>
                 <div className="text-sm text-slate-500">Valeur / Volume d'Inventaire</div>
-                <div className="mt-2 text-2xl font-bold">{kpis ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: kpis.currency ?? 'EUR' }).format(kpis.inventoryValue ?? 0) : '—'}</div>
+                <div className="mt-2 text-2xl font-bold">{kpis ? currencyFormat(Number(kpis.inventoryValue ?? 0), kpis.currency ?? 'EUR') : '—'}</div>
               </>
             )}
           </div>
@@ -155,9 +184,12 @@ export default function Page() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Store selector button (user requirement) - opens simple dropdown of stores fetched from storesPerf */}
             <label className="text-sm text-slate-600">Magasin</label>
-            <select className="ml-2 px-2 py-1 border rounded-md bg-white">
+            <select
+              value={selectedStoreId}
+              onChange={(e) => setSelectedStoreId(e.target.value ? Number(e.target.value) : '')}
+              className="ml-2 px-2 py-1 border rounded-md bg-white"
+            >
               <option value="">Tous les magasins</option>
               {storesPerf?.map((s) => (
                 <option key={s.storeId} value={s.storeId}>{s.storeName}</option>
@@ -181,7 +213,7 @@ export default function Page() {
                 <BarChart data={salesSeries} onClick={(e: any) => { if (e && e.activeLabel) onBarClick(e.activeLabel); }}>
                   <XAxis dataKey="date" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip formatter={(v:any) => currencyFormat(Number(v ?? 0), kpis?.currency ?? 'EUR')} />
                   <Bar dataKey="amount" fill="#60A5FA" />
                 </BarChart>
               </ResponsiveContainer>
@@ -204,7 +236,7 @@ export default function Page() {
                     <div key={row.id} className="p-2 border rounded bg-white">
                       <div className="flex justify-between">
                         <div className="font-medium">{row.productName}</div>
-                        <div className="text-sm text-slate-600">{new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(row.amount)}</div>
+                        <div className="text-sm text-slate-600">{currencyFormat(Number(row.amount ?? 0), kpis?.currency ?? 'EUR')}</div>
                       </div>
                       <div className="text-sm text-slate-500">Quantité: {row.quantity} — Heure: {new Date(row.time).toLocaleTimeString()}</div>
                     </div>
@@ -229,7 +261,7 @@ export default function Page() {
               ) : storesPerf && storesPerf.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie dataKey={(d: any) => d.salesAmount} data={storesPerf} nameKey="storeName" cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} onClick={(entry: any, index) => {
+                    <Pie dataKey="salesAmount" data={storesPerf} nameKey="storeName" cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} onClick={(entry: any, index) => {
                       const d = storesPerf[index];
                       if (d?.storeId) router.push(`/stores/${d.storeId}/stats`);
                     }}>
@@ -237,7 +269,7 @@ export default function Page() {
                         <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip formatter={(v:any) => currencyFormat(Number(v ?? 0), kpis?.currency ?? 'EUR')} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
@@ -253,7 +285,7 @@ export default function Page() {
                       <span className="w-3 h-3 rounded-full" style={{ background: colors[i % colors.length] }} />
                       <div>
                         <div className="font-medium">{s.storeName}</div>
-                        <div className="text-sm text-slate-500">{new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(s.salesAmount ?? 0)}</div>
+                        <div className="text-sm text-slate-500">{currencyFormat(Number(s.salesAmount ?? 0), kpis?.currency ?? 'EUR')}</div>
                       </div>
                     </div>
                     <button onClick={() => router.push(`/stores/${s.storeId}/stats`)} className="text-sm text-blue-600">Voir</button>
