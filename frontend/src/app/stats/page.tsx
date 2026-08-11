@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Menu from '../../components/Menu';
+import DashboardCard from '../../components/DashboardCard';
 
 // Recharts dynamic imports to avoid SSR issues
 const BarChart = dynamic(() => import('recharts').then(mod => mod.BarChart), { ssr: false });
@@ -46,6 +47,30 @@ async function safeFetchJson(path: string) {
   } catch (e) { console.error('safeFetchJson', e); return null; }
 }
 
+function normalizeKpis(raw: any) {
+  if (!raw) return null;
+  return {
+    totalRevenue: Number(raw.totalRevenue ?? raw.total_revenue ?? raw.total ?? 0),
+    inventoryValue: Number(raw.inventoryValue ?? raw.inventory_value ?? raw.inventory ?? 0),
+    currency: raw.currency ?? raw.currencyCode ?? 'EUR',
+  };
+}
+
+function normalizeSeriesItem(item: any) {
+  return {
+    date: item.date ?? item.bucket ?? item.label ?? '',
+    amount: Number(item.amount ?? item.totalAmount ?? item.total_amount ?? item.value ?? 0),
+  };
+}
+
+function normalizeStoreItem(item: any) {
+  return {
+    storeId: item.storeId ?? item.store_id ?? item.id ?? null,
+    storeName: item.storeName ?? item.store_name ?? item.name ?? 'Magasin',
+    salesAmount: Number(item.salesAmount ?? item.sales_amount ?? item.total ?? item.amount ?? 0),
+  };
+}
+
 export default function Page() {
   const router = useRouter();
   const [period, setPeriod] = useState<'week'|'month'|'year'>('week');
@@ -55,6 +80,7 @@ export default function Page() {
   const [kpis, setKpis] = useState<any | null>(null);
   const [salesSeries, setSalesSeries] = useState<any[] | null>(null);
   const [storesPerf, setStoresPerf] = useState<any[] | null>(null);
+  const [storesAll, setStoresAll] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [dayDetails, setDayDetails] = useState<any[] | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -83,7 +109,7 @@ export default function Page() {
   }, [period]);
 
   useEffect(() => {
-    async function load() {
+    async function loadAll() {
       setLoading(true);
       try {
         const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
@@ -91,22 +117,43 @@ export default function Page() {
         const sUrl = `/api/reports/sales/series?period=${period}&start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}${storeParam}`;
         const stUrl = `/api/reports/stores?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}`;
 
-        const [k, s, st] = await Promise.all([
+        const [kRaw, sRaw, stRaw] = await Promise.all([
           safeFetchJson(kUrl),
           safeFetchJson(sUrl),
           safeFetchJson(stUrl),
         ]);
 
+        const k = normalizeKpis(kRaw);
         setKpis(k);
-        setSalesSeries(Array.isArray(s) ? s : (s?.data ?? []));
-        setStoresPerf(Array.isArray(st) ? st : (st?.data ?? []));
+
+        const seriesArray = Array.isArray(sRaw) ? sRaw : (sRaw?.data ?? []);
+        setSalesSeries(seriesArray.map(normalizeSeriesItem));
+
+        const storesArray = Array.isArray(stRaw) ? stRaw : (stRaw?.data ?? []);
+        setStoresPerf(storesArray.map(normalizeStoreItem));
       } catch (e) {
         console.error('Failed to load stats', e);
       } finally {
         setLoading(false);
       }
     }
-    load();
+
+    // load also the list of all stores (for dropdown) - try /stores first
+    async function loadStoresList() {
+      try {
+        const res = await safeFetchJson('/stores');
+        const arr = Array.isArray(res) ? res : (res?.data ?? []);
+        // normalize store objects
+        const normalized = arr.map((s: any) => ({ id: s.id ?? s.storeId ?? s.store_id, name: s.name ?? s.storeName ?? s.store_name }));
+        setStoresAll(normalized);
+      } catch (e) {
+        console.warn('Could not fetch /stores', e);
+        setStoresAll([]);
+      }
+    }
+
+    loadAll();
+    loadStoresList();
   }, [period, startDate, endDate, selectedStoreId]);
 
   const colors = ['#60A5FA', '#34D399', '#F59E0B', '#F97316', '#EF4444'];
@@ -115,7 +162,8 @@ export default function Page() {
     try {
       const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
       const res = await safeFetchJson(`/api/reports/sales/day?date=${encodeURIComponent(bucketDate)}${storeParam}`);
-      setDayDetails(Array.isArray(res) ? res : (res?.data ?? []));
+      const rows = Array.isArray(res) ? res : (res?.data ?? []);
+      setDayDetails(rows);
       setSelectedDay(bucketDate);
       const el = document.getElementById('day-details');
       if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -135,33 +183,17 @@ export default function Page() {
 
         {/* KPI cards */}
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="bg-white p-4 rounded-lg shadow-sm">
-            {loading && !kpis ? (
-              <div className="animate-pulse">
-                <div className="h-6 bg-slate-200 rounded w-3/4 mb-3" />
-                <div className="h-10 bg-slate-200 rounded w-1/2" />
-              </div>
-            ) : (
-              <>
-                <div className="text-sm text-slate-500">Chiffre d'Affaires Réel</div>
-                <div className="mt-2 text-2xl font-bold">{kpis ? currencyFormat(Number(kpis.totalRevenue ?? 0), kpis.currency ?? 'EUR') : '—'}</div>
-              </>
-            )}
-          </div>
+          <DashboardCard
+            title="Chiffre d'Affaires Réel"
+            value={kpis ? currencyFormat(Number(kpis.totalRevenue ?? 0), kpis.currency ?? 'EUR') : (loading ? 'Chargement…' : '—')}
+            description={kpis ? 'Somme des ventes sur la période' : undefined}
+          />
 
-          <div className="bg-white p-4 rounded-lg shadow-sm">
-            {loading && !kpis ? (
-              <div className="animate-pulse">
-                <div className="h-6 bg-slate-200 rounded w-3/4 mb-3" />
-                <div className="h-10 bg-slate-200 rounded w-1/2" />
-              </div>
-            ) : (
-              <>
-                <div className="text-sm text-slate-500">Valeur / Volume d'Inventaire</div>
-                <div className="mt-2 text-2xl font-bold">{kpis ? currencyFormat(Number(kpis.inventoryValue ?? 0), kpis.currency ?? 'EUR') : '—'}</div>
-              </>
-            )}
-          </div>
+          <DashboardCard
+            title="Valeur / Volume d'Inventaire"
+            value={kpis ? currencyFormat(Number(kpis.inventoryValue ?? 0), kpis.currency ?? 'EUR') : (loading ? 'Chargement…' : '—')}
+            description={kpis ? 'Valeur financière du stock courant' : undefined}
+          />
         </section>
 
         {/* Controls: period selector and store selector */}
@@ -183,9 +215,15 @@ export default function Page() {
               className="ml-2 px-2 py-1 border rounded-md bg-white"
             >
               <option value="">Tous les magasins</option>
-              {storesPerf?.map((s) => (
-                <option key={s.storeId} value={s.storeId}>{s.storeName}</option>
-              ))}
+              {storesAll && storesAll.length > 0 ? (
+                storesAll.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))
+              ) : (
+                storesPerf?.map((s) => (
+                  <option key={s.storeId} value={s.storeId}>{s.storeName}</option>
+                ))
+              )}
             </select>
           </div>
         </div>
