@@ -31,25 +31,19 @@ function getEndOfWeek(d: Date) {
   return e;
 }
 
-async function safeFetchJson(url: string) {
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
+
+async function safeFetchJson(path: string) {
+  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   try {
     const res = await fetch(url, { credentials: 'include' });
     if (!res.ok) return null;
     const text = await res.text();
     if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      // sometimes already JSON, fallback to res.json()
-      try {
-        return await res.json();
-      } catch (e2) {
-        return null;
-      }
+    try { return JSON.parse(text); } catch {
+      try { return await res.json(); } catch { return null; }
     }
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { console.error('safeFetchJson', e); return null; }
 }
 
 export default function Page() {
@@ -104,7 +98,6 @@ export default function Page() {
         ]);
 
         setKpis(k);
-        // normalize series to array
         setSalesSeries(Array.isArray(s) ? s : (s?.data ?? []));
         setStoresPerf(Array.isArray(st) ? st : (st?.data ?? []));
       } catch (e) {
@@ -119,7 +112,6 @@ export default function Page() {
   const colors = ['#60A5FA', '#34D399', '#F59E0B', '#F97316', '#EF4444'];
 
   const onBarClick = async (bucketDate: string) => {
-    // fetch sales day details
     try {
       const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
       const res = await safeFetchJson(`/api/reports/sales/day?date=${encodeURIComponent(bucketDate)}${storeParam}`);
