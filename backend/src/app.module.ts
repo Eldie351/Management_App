@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StoresModule } from './users/stores/stores.module';
 import { UsersModule } from './users/users.module';
+import { SalesModule } from './sales/sales.module';
 import { ExchangeRateModule } from './exchange-rate/exchange-rate.module';
 import { CategoriesModule } from './users/stores/categories/categories.module';
 import { SuppliersModule } from './users/stores/suppliers/suppliers.module';
@@ -22,6 +23,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
     AuthModule, 
     StoresModule,
     ProductsModule,
+    SalesModule,
     ExchangeRateModule,
     CategoriesModule,
     SuppliersModule,
