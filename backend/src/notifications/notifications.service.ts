@@ -43,8 +43,8 @@ export class NotificationsService {
 
   /**
    * Détecte un franchissement de seuil et crée la notification adaptée.
-   * Ne notifie QUE lors de la transition (pour ne pas spammer à chaque
-   * vente tant que le produit reste sous le seuil).
+   * Utilise exactement le même calcul de repli (fallback) que le ProductsService.
+   * Ne notifie QUE lors du franchissement effectif du seuil (anti-spam).
    */
   async checkStockThreshold(
     client: Prisma.TransactionClient,
@@ -53,13 +53,27 @@ export class NotificationsService {
       productId: number;
       productName: string;
       minimumStock: number;
+      safetyStock?: number | null;
       previousQuantity: number;
       newQuantity: number;
     },
   ) {
-    const { storeId, productName, minimumStock, previousQuantity, newQuantity } = params;
+    const {
+      storeId,
+      productName,
+      minimumStock,
+      safetyStock: explicitSafetyStock,
+      previousQuantity,
+      newQuantity,
+    } = params;
 
-    // Rupture de stock : franchissement de 0 vers <= 0
+    // 1. Calcul du safetyStock réel (aligné sur ProductsService : fallback = floor(minimumStock / 2))
+    const effectiveSafetyStock =
+      explicitSafetyStock !== undefined && explicitSafetyStock !== null
+        ? explicitSafetyStock
+        : Math.floor(minimumStock / 2);
+
+    // 2. Rupture de stock : franchissement de 0 vers <= 0
     if (newQuantity <= 0 && previousQuantity > 0) {
       await this.create(
         storeId,
@@ -70,12 +84,31 @@ export class NotificationsService {
       return;
     }
 
-    // Stock faible : franchissement du seuil minimum (mais encore > 0)
-    if (newQuantity > 0 && newQuantity <= minimumStock && previousQuantity > minimumStock) {
+    // 3. Stock critique (Safety Stock) : passage de > safetyStock à <= safetyStock
+    if (
+      newQuantity > 0 &&
+      newQuantity <= effectiveSafetyStock &&
+      previousQuantity > effectiveSafetyStock
+    ) {
+      await this.create(
+        storeId,
+        'Stock critique (Urgence)',
+        `🚨 ${productName} a atteint son seuil de sécurité critique (${newQuantity} restant, seuil de sécurité : ${effectiveSafetyStock}). Réapprovisionnement immédiat requis !`,
+        client,
+      );
+      return;
+    }
+
+    // 4. Stock faible (Minimum Stock) : passage de > minimumStock à <= minimumStock
+    if (
+      newQuantity > effectiveSafetyStock &&
+      newQuantity <= minimumStock &&
+      previousQuantity > minimumStock
+    ) {
       await this.create(
         storeId,
         'Stock faible',
-        `⚠️ ${productName} est passé sous le seuil minimal (${newQuantity} restant, seuil : ${minimumStock}).`,
+        `⚠️ ${productName} est passé sous le seuil minimal (${newQuantity} restant, seuil minimal : ${minimumStock}).`,
         client,
       );
     }
