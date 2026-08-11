@@ -18,12 +18,14 @@ export class ReportsService {
     const totalRevenue = totalAgg._sum.amount ? Number(totalAgg._sum.amount) : 0;
 
     // inventory value: sum(quantity * unit_price) for current stock
+    // Prisma aggregate doesn't support multiplication directly -> use raw SQL for Postgres
     const invRaw: any = await this.prisma.$queryRaw`
       SELECT COALESCE(SUM(quantity * unit_price), 0) as "inventoryValue" FROM "Inventory" WHERE quantity > 0
     `;
     const inventoryValue = invRaw && invRaw[0] && invRaw[0].inventoryValue ? Number(invRaw[0].inventoryValue) : 0;
 
     // Currency: choose a default, or derive from company/store settings.
+    // Here we attempt to read a default currency from a Settings table; fallback to 'EUR'
     let currency = 'EUR';
     try {
       const setting = await this.prisma.setting.findUnique({ where: { key: 'default_currency' } });
@@ -40,6 +42,7 @@ export class ReportsService {
     const start = new Date(startISO);
     const end = new Date(endISO);
 
+    // For Postgres we use date_trunc to bucket: day for week/month views, month for year view
     if (period === 'year') {
       // bucket by month
       const rows: any[] = await this.prisma.$queryRaw`
@@ -70,10 +73,11 @@ export class ReportsService {
     const end = new Date(date);
     end.setHours(23, 59, 59, 999);
 
+    // Assuming Sale has relation items: SaleItem with productId, quantity, unitPrice
     const sales = await this.prisma.sale.findMany({
       where: { createdAt: { gte: start, lte: end } },
       include: {
-        items: { include: { product: true } },
+        items: { include: { product: true } }, // SaleItem -> product
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -98,6 +102,7 @@ export class ReportsService {
     const start = new Date(startISO);
     const end = new Date(endISO);
 
+    // Use groupBy to sum sales per store (Prisma groupBy)
     try {
       const grouped = await this.prisma.sale.groupBy({
         by: ['storeId'],
@@ -117,6 +122,7 @@ export class ReportsService {
         salesAmount: g._sum.amount ? Number(g._sum.amount) : 0,
       }));
     } catch (e) {
+      // Fallback raw SQL if groupBy fails
       const rows: any[] = await this.prisma.$queryRaw`
         SELECT s."storeId" as "storeId", st.name as "storeName", COALESCE(SUM(s.amount),0)::numeric as "salesAmount"
         FROM "Sale" s
