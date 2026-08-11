@@ -5,12 +5,12 @@ import { ExchangeRateService } from './exchange-rate.service';
 export class ExchangeRateCronService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExchangeRateCronService.name);
   private cronInterval: NodeJS.Timeout | null = null;
+  private isRunning = false;
 
   constructor(private exchangeRateService: ExchangeRateService) {}
 
   async onModuleInit() {
     this.logger.log('🚀 Initializing Exchange Rate Cron Service...');
-    
     // Fetch rates immediately on startup
     try {
       await this.exchangeRateService.fetchAndCacheExchangeRates();
@@ -27,11 +27,18 @@ export class ExchangeRateCronService implements OnModuleInit, OnModuleDestroy {
     const SIX_HOURS = 6 * 60 * 60 * 1000;
 
     this.cronInterval = setInterval(async () => {
+      if (this.isRunning) {
+        this.logger.warn('Previous exchange rate update is still running; skipping this run.');
+        return;
+      }
+      this.isRunning = true;
       try {
         this.logger.log('⏱️ Running scheduled exchange rate update...');
         await this.exchangeRateService.fetchAndCacheExchangeRates();
       } catch (error) {
         this.logger.error('Scheduled exchange rate update failed:', error);
+      } finally {
+        this.isRunning = false;
       }
     }, SIX_HOURS);
 
