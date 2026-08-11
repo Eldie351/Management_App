@@ -21,6 +21,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Jeton invalide ou utilisateur supprimé.');
     }
     // Ce qui est retourné ici sera accessible dans 'req.user' dans vos contrôleurs
-    return { id: user.id, email: user.email, role: user.role };
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      assignedStoreId: user.assignedStoreId,
+    };
   }
 }

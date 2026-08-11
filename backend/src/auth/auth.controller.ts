@@ -1,5 +1,9 @@
 import { Body, Controller, Post, Get, Delete, Request, UseGuards} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -38,7 +42,8 @@ export class AuthController {
   }
 
   @Delete('compte')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async deleteAccount(@Request() req) {
     const userId = req.user.id;
     return this.authService.deleteAccount(userId);
