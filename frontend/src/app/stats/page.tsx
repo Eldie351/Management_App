@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
 import DashboardCard from '@/components/DashboardCard';
 import { Button } from '@/components/ui/button';
@@ -21,17 +20,18 @@ import {
 } from 'lucide-react';
 import { getStoredUserRole } from '@/lib/auth';
 
-// Recharts est importé dynamiquement (ssr: false) pour éviter les soucis d'hydratation.
-const BarChart = dynamic(() => import('recharts').then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import('recharts').then((m) => m.Bar), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then((m) => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import('recharts').then((m) => m.CartesianGrid), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then((m) => m.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
-const PieChart = dynamic(() => import('recharts').then((m) => m.PieChart), { ssr: false });
-const Pie = dynamic(() => import('recharts').then((m) => m.Pie), { ssr: false });
-const Cell = dynamic(() => import('recharts').then((m) => m.Cell), { ssr: false });
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
 
 // ----------------------------------------------------------------------------------
 // Types
@@ -196,6 +196,11 @@ export default function StatsPage() {
 
   const [storesPerf, setStoresPerf] = useState<StorePerf[] | null>(null);
   const [storesLoading, setStoresLoading] = useState(true);
+
+  // Les graphiques Recharts ne sont rendus qu'une fois montés côté client,
+  // pour éviter tout écart de rendu serveur/client (hydration mismatch).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Plage de dates dérivée de la période + de l'ancre courante
   const { start, end, label } = useMemo(() => {
@@ -394,9 +399,19 @@ export default function StatsPage() {
   function goNext() { setAnchor((d) => shiftPeriod(d, period, 1)); }
   function goToday() { setAnchor(new Date()); setPeriod('week'); }
 
-  // Bascule le filtre magasin au clic sur une part du donut / la légende (clic à nouveau = désactive)
+  // Bascule le filtre magasin (utilisé par le sélecteur en haut de page uniquement)
   function toggleStoreFilter(id: number) {
     setStoreFilter((current) => (current === String(id) ? '' : String(id)));
+  }
+
+  // Clic sur une part du donut ou sur un magasin de la liste : direction la page
+  // dédiée de ce magasin, en conservant la période et la plage de dates choisies.
+  function goToStoreDetail(id: number) {
+    const params = new URLSearchParams({
+      period,
+      anchor: anchor.toISOString(),
+    });
+    router.push(`/stores/${id}?${params.toString()}`);
   }
 
   const totalStoreSales = useMemo(
@@ -619,7 +634,7 @@ export default function StatsPage() {
             )}
 
             <div className="w-full h-72">
-              {salesLoading ? (
+              {salesLoading || !mounted ? (
                 <Skeleton className="h-full w-full" />
               ) : salesError ? (
                 <div className="h-full flex items-center justify-center text-sm text-destructive">{salesError}</div>
@@ -715,38 +730,41 @@ export default function StatsPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg">Performance des magasins</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Cliquez sur un magasin pour filtrer la page</p>
+              <p className="text-sm text-muted-foreground mt-1">Cliquez sur un magasin pour voir son historique détaillé</p>
             </div>
             <p className="text-sm text-muted-foreground">{label}</p>
           </CardHeader>
           <CardContent>
-            {storesLoading ? (
+            {storesLoading || !mounted ? (
               <div className="h-72 flex items-center justify-center">
                 <Skeleton className="h-56 w-56 rounded-full" />
               </div>
             ) : storesPerf && storesPerf.length > 0 ? (
               <div className="flex flex-col lg:flex-row items-center gap-6">
-                <div className="w-full lg:w-1/2 h-72">
+                <div className="relative w-full lg:w-1/2 h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={storesPerf}
                         dataKey="salesAmount"
                         nameKey="storeName"
-                        innerRadius={65}
-                        outerRadius={100}
-                        paddingAngle={2}
+                        innerRadius={68}
+                        outerRadius={104}
+                        paddingAngle={3}
+                        cornerRadius={6}
                         cursor="pointer"
                         onClick={(entry: any) => {
                           const storeId = entry?.payload?.storeId;
-                          if (storeId) toggleStoreFilter(storeId);
+                          if (storeId) goToStoreDetail(storeId);
                         }}
                       >
                         {storesPerf.map((entry, index) => (
                           <Cell
                             key={entry.storeId}
                             fill={COLORS[index % COLORS.length]}
-                            opacity={storeFilter && storeFilter !== String(entry.storeId) ? 0.35 : 1}
+                            stroke="#fff"
+                            strokeWidth={2}
+                            className="transition-opacity hover:opacity-80"
                           />
                         ))}
                       </Pie>
@@ -758,19 +776,22 @@ export default function StatsPage() {
                       />
                     </PieChart>
                   </ResponsiveContainer>
+                  {/* Total au centre du donut */}
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <p className="text-xs text-muted-foreground">Total</p>
+                    <p className="text-lg font-semibold tabular-nums">{formatCurrency(totalStoreSales)}</p>
+                  </div>
                 </div>
 
                 <div className="w-full lg:w-1/2 space-y-2">
                   {storesPerf.map((s, i) => {
                     const pct = totalStoreSales > 0 ? ((s.salesAmount / totalStoreSales) * 100).toFixed(1) : '0';
-                    const isActive = storeFilter === String(s.storeId);
                     return (
                       <button
                         key={s.storeId}
-                        onClick={() => toggleStoreFilter(s.storeId)}
-                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors text-left ${
-                          isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
-                        }`}
+                        onClick={() => goToStoreDetail(s.storeId)}
+                        title={`Voir l'historique détaillé de ${s.storeName}`}
+                        className="w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors text-left hover:bg-muted/50 hover:border-primary/40"
                       >
                         <div className="flex items-center gap-3">
                           <span className="size-3 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
@@ -779,7 +800,10 @@ export default function StatsPage() {
                             <p className="text-xs text-muted-foreground">{pct}% des ventes</p>
                           </div>
                         </div>
-                        <p className="text-sm font-medium">{formatCurrency(s.salesAmount)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">{formatCurrency(s.salesAmount)}</p>
+                          <ChevronRight className="size-4 text-muted-foreground" />
+                        </div>
                       </button>
                     );
                   })}
