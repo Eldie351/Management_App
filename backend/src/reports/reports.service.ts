@@ -1,137 +1,146 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+type Period = 'week' | 'month' | 'year';
+
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  // Return shape: { totalRevenue, inventoryValue, currency }
-  async getKpis(startISO: string, endISO: string) {
+  // Shape retournée : { totalRevenue, inventoryValue, currency }
+  async getKpis(startISO: string, endISO: string, storeId?: number) {
     const start = new Date(startISO);
     const end = new Date(endISO);
 
-    // total revenue (sum of sale.totalAmount in period)
+    // Chiffre d'affaires réel : somme des ventes réalisées sur la période
     const totalAgg = await this.prisma.sale.aggregate({
       _sum: { totalAmount: true },
-      where: { createdAt: { gte: start, lte: end } },
+      where: {
+        createdAt: { gte: start, lte: end },
+        ...(storeId ? { storeId } : {}),
+      },
     });
     const totalRevenue = totalAgg._sum?.totalAmount ? Number(totalAgg._sum.totalAmount) : 0;
 
-    // inventory value: sum(quantity * unit_price) for current stock
-    // Prisma aggregate doesn't support multiplication directly -> use raw SQL for Postgres
-    const invRaw: any = await this.prisma.$queryRaw`
-      SELECT COALESCE(SUM(quantity * unit_price), 0) as "inventoryValue" FROM "Inventory" WHERE quantity > 0
-    `;
-    const inventoryValue = invRaw && invRaw[0] && invRaw[0].inventoryValue ? Number(invRaw[0].inventoryValue) : 0;
+    // Valeur d'inventaire : Σ(quantité restante × prix de vente) du stock courant,
+    // indépendant de la période. Le stock vit directement sur Product (pas de table Inventory).
+    const products = await this.prisma.product.findMany({
+      where: {
+        quantity: { gt: 0 },
+        deletedAt: null,
+        ...(storeId ? { storeId } : {}),
+      },
+      select: { quantity: true, sellingPrice: true },
+    });
+    const inventoryValue = products.reduce(
+      (sum, p) => sum + Number(p.quantity) * Number(p.sellingPrice),
+      0,
+    );
 
-    // Currency: choose a default, or derive from company/store settings.
-    // Here we attempt to read a default currency from a Settings table; fallback to 'EUR'
-    let currency = 'EUR';
-    try {
-      const setting = await this.prisma.setting.findUnique({ where: { key: 'default_currency' } });
-      if (setting && setting.value) currency = setting.value;
-    } catch {
-      // ignore and fallback
+    // Devise : celle du magasin filtré, sinon XOF (FCFA) par défaut.
+    let currency = 'XOF';
+    if (storeId) {
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { currency: true },
+      });
+      if (store?.currency) currency = store.currency;
     }
 
     return { totalRevenue, inventoryValue, currency };
   }
 
-  // period: 'week'|'month'|'year'
-  async getSalesSeries(period: 'week' | 'month' | 'year', startISO: string, endISO: string) {
+  // period: 'week' | 'month' | 'year'
+  // Bucket en JS (plutôt qu'en SQL brut) pour rester indépendant du moteur de BDD
+  // et du fuseau horaire de session Postgres.
+  async getSalesSeries(period: Period, startISO: string, endISO: string, storeId?: number) {
     const start = new Date(startISO);
     const end = new Date(endISO);
 
-    // For Postgres we use date_trunc to bucket: day for week/month views, month for year view
-    if (period === 'year') {
-      // bucket by month
-      const rows: any[] = await this.prisma.$queryRaw`
-        SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') as bucket, COALESCE(SUM("totalAmount"),0)::numeric as amount
-        FROM "Sale"
-        WHERE "createdAt" BETWEEN ${start} AND ${end}
-        GROUP BY bucket
-        ORDER BY bucket ASC
-      `;
-      return rows.map(r => ({ date: r.bucket, amount: Number(r.amount) }));
-    } else {
-      // bucket by day
-      const rows: any[] = await this.prisma.$queryRaw`
-        SELECT to_char(date_trunc('day', "createdAt"), 'YYYY-MM-DD') as bucket, COALESCE(SUM("totalAmount"),0)::numeric as amount
-        FROM "Sale"
-        WHERE "createdAt" BETWEEN ${start} AND ${end}
-        GROUP BY bucket
-        ORDER BY bucket ASC
-      `;
-      return rows.map(r => ({ date: r.bucket, amount: Number(r.amount) }));
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        ...(storeId ? { storeId } : {}),
+      },
+      select: { totalAmount: true, createdAt: true },
+    });
+
+    const buckets = new Map<string, number>();
+    for (const sale of sales) {
+      const key = period === 'year' ? monthKey(sale.createdAt) : dayKey(sale.createdAt);
+      buckets.set(key, (buckets.get(key) ?? 0) + Number(sale.totalAmount));
     }
+
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, amount]) => ({ date, amount }));
   }
 
-  async getSalesDay(dateISO: string) {
-    const date = new Date(dateISO);
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(date);
-    end.setHours(23, 59, 59, 999);
+  async getSalesDay(dateISO: string, storeId?: number) {
+    // dateISO attendu au format YYYY-MM-DD (clé renvoyée par getSalesSeries).
+    // On construit les bornes en UTC pour rester cohérent avec dayKey().
+    const [y, m, d] = dateISO.slice(0, 10).split('-').map(Number);
+    const start = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 23, 59, 59, 999));
 
-    // Assuming Sale has relation items: SaleItem with productId, quantity, unitPrice
     const sales = await this.prisma.sale.findMany({
-      where: { createdAt: { gte: start, lte: end } },
-      include: {
-        items: { include: { product: true } }, // SaleItem -> product
+      where: {
+        createdAt: { gte: start, lte: end },
+        ...(storeId ? { storeId } : {}),
       },
+      include: { items: { include: { product: true } } },
       orderBy: { createdAt: 'asc' },
     });
 
     const out: Array<{ id: string; productName: string; quantity: number; time: string; amount: number }> = [];
-    for (const s of sales) {
-      const saleTime = s.createdAt.toISOString();
-      for (const it of s.items) {
+    for (const sale of sales) {
+      const saleTime = sale.createdAt.toISOString();
+      for (const item of sale.items) {
         out.push({
-          id: `${s.id}-${it.id}`,
-          productName: it.product?.name ?? 'Produit inconnu',
-          quantity: it.quantity,
+          id: `${sale.id}-${item.id}`,
+          productName: item.product?.name ?? 'Produit inconnu',
+          quantity: item.quantity,
           time: saleTime,
-          amount: Number(it.quantity) * Number(it.unitPrice),
+          amount: Number(item.total),
         });
       }
     }
     return out;
   }
 
-  async getStoresPerf(startISO: string, endISO: string) {
+  async getStoresPerf(startISO: string, endISO: string, storeId?: number) {
     const start = new Date(startISO);
     const end = new Date(endISO);
 
-    // Use groupBy to sum sales per store (Prisma groupBy)
-    try {
-      const grouped = await this.prisma.sale.groupBy({
-        by: ['storeId'],
-        _sum: { totalAmount: true },
-        where: { createdAt: { gte: start, lte: end } },
-        orderBy: { _sum: { totalAmount: 'desc' } },
-      });
-      const storeIds = grouped.map(g => g.storeId);
-      const stores = await this.prisma.store.findMany({
-        where: { id: { in: storeIds } },
-        select: { id: true, name: true },
-      });
-      const storeMap = new Map(stores.map(s => [s.id, s.name]));
-      return grouped.map(g => ({
-        storeId: g.storeId,
-        storeName: storeMap.get(g.storeId) ?? 'Magasin',
-        salesAmount: g._sum?.totalAmount ? Number(g._sum.totalAmount) : 0,
-      }));
-    } catch (e) {
-      // Fallback raw SQL if groupBy fails
-      const rows: any[] = await this.prisma.$queryRaw`
-        SELECT s."storeId" as "storeId", st.name as "storeName", COALESCE(SUM(s."totalAmount"),0)::numeric as "salesAmount"
-        FROM "Sale" s
-        LEFT JOIN "Store" st ON st.id = s."storeId"
-        WHERE s."createdAt" BETWEEN ${start} AND ${end}
-        GROUP BY s."storeId", st.name
-        ORDER BY "salesAmount" DESC
-      `;
-      return rows.map(r => ({ storeId: r.storeId, storeName: r.storeName, salesAmount: Number(r.salesAmount) }));
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        ...(storeId ? { storeId } : {}),
+      },
+      select: {
+        totalAmount: true,
+        store: { select: { id: true, name: true } },
+      },
+    });
+
+    const grouped = new Map<number, { storeName: string; salesAmount: number; salesCount: number }>();
+    for (const sale of sales) {
+      if (!sale.store) continue;
+      const entry = grouped.get(sale.store.id) ?? { storeName: sale.store.name, salesAmount: 0, salesCount: 0 };
+      entry.salesAmount += Number(sale.totalAmount);
+      entry.salesCount += 1;
+      grouped.set(sale.store.id, entry);
     }
+
+    return Array.from(grouped.entries())
+      .map(([id, v]) => ({ storeId: id, storeName: v.storeName, salesAmount: v.salesAmount, salesCount: v.salesCount }))
+      .sort((a, b) => b.salesAmount - a.salesAmount);
   }
+}
+
+function dayKey(d: Date) {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+}
+function monthKey(d: Date) {
+  return d.toISOString().slice(0, 7); // YYYY-MM (UTC)
 }

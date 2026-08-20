@@ -1,333 +1,798 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import Menu from '../../components/Menu';
-import DashboardCard from '../../components/DashboardCard';
+import Sidebar from '@/components/Sidebar';
+import DashboardCard from '@/components/DashboardCard';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DollarSign,
+  Boxes,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  X,
+  PackageSearch,
+  Store as StoreIcon,
+  CircleX,
+} from 'lucide-react';
+import { getStoredUserRole } from '@/lib/auth';
 
-// Recharts dynamic imports to avoid SSR issues
-const BarChart = dynamic(() => import('recharts').then(mod => mod.BarChart), { ssr: false });
-const Bar = dynamic(() => import('recharts').then(mod => mod.Bar), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then(mod => mod.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then(mod => mod.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then(mod => mod.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer), { ssr: false });
-const PieChart = dynamic(() => import('recharts').then(mod => mod.PieChart), { ssr: false });
-const Pie = dynamic(() => import('recharts').then(mod => mod.Pie), { ssr: false });
-const Cell = dynamic(() => import('recharts').then(mod => mod.Cell), { ssr: false });
+// Recharts est importé dynamiquement (ssr: false) pour éviter les soucis d'hydratation.
+const BarChart = dynamic(() => import('recharts').then((m) => m.BarChart), { ssr: false });
+const Bar = dynamic(() => import('recharts').then((m) => m.Bar), { ssr: false });
+const XAxis = dynamic(() => import('recharts').then((m) => m.XAxis), { ssr: false });
+const YAxis = dynamic(() => import('recharts').then((m) => m.YAxis), { ssr: false });
+const CartesianGrid = dynamic(() => import('recharts').then((m) => m.CartesianGrid), { ssr: false });
+const Tooltip = dynamic(() => import('recharts').then((m) => m.Tooltip), { ssr: false });
+const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
+const PieChart = dynamic(() => import('recharts').then((m) => m.PieChart), { ssr: false });
+const Pie = dynamic(() => import('recharts').then((m) => m.Pie), { ssr: false });
+const Cell = dynamic(() => import('recharts').then((m) => m.Cell), { ssr: false });
 
-function getStartOfWeek(d: Date) {
+// ----------------------------------------------------------------------------------
+// Types
+// ----------------------------------------------------------------------------------
+type Period = 'week' | 'month' | 'year';
+
+interface Kpis {
+  totalRevenue: number;
+  inventoryValue: number;
+  currency: string;
+}
+
+interface SalesPoint {
+  date: string;   // clé brute renvoyée par le backend (YYYY-MM-DD ou YYYY-MM)
+  label: string;  // libellé affiché sur l'axe X
+  amount: number;
+  count?: number;
+}
+
+interface SaleDetail {
+  id: number | string;
+  productName: string;
+  quantity: number;
+  time: string; // ISO
+  amount: number;
+}
+
+interface StorePerf {
+  storeId: number;
+  storeName: string;
+  salesAmount: number;
+  salesCount?: number;
+}
+
+interface StoreOption {
+  id: number;
+  name: string;
+}
+
+interface DayCell {
+  date: Date;
+  key: string;
+  inCurrentMonth: boolean;
+  isToday: boolean;
+}
+
+// ----------------------------------------------------------------------------------
+// Constantes & helpers date (aucune dépendance externe requise)
+// ----------------------------------------------------------------------------------
+const MONTHS_FR = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+];
+const MONTHS_FR_SHORT = MONTHS_FR.map((m) => m.slice(0, 3));
+const DAYS_FR_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#f97316', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
+
+function pad(n: number) {
+  return n.toString().padStart(2, '0');
+}
+function toDateKey(d: Date) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function startOfWeek(d: Date) {
   const date = new Date(d);
-  const day = (date.getDay() + 6) % 7; // make Monday = 0
+  const day = (date.getDay() + 6) % 7; // Lundi = 0
   date.setDate(date.getDate() - day);
   date.setHours(0, 0, 0, 0);
   return date;
 }
-function getEndOfWeek(d: Date) {
-  const s = getStartOfWeek(d);
+function endOfWeek(d: Date) {
+  const s = startOfWeek(d);
   const e = new Date(s);
   e.setDate(s.getDate() + 6);
   e.setHours(23, 59, 59, 999);
   return e;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
-
-async function safeFetchJson(path: string) {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
-  try {
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) return null;
-    const text = await res.text();
-    if (!text) return null;
-    try { return JSON.parse(text); } catch {
-      try { return await res.json(); } catch { return null; }
-    }
-  } catch (e) { console.error('safeFetchJson', e); return null; }
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
 }
-
-function normalizeKpis(raw: any) {
-  if (!raw) return null;
-  return {
-    totalRevenue: Number(raw.totalRevenue ?? raw.total_revenue ?? raw.total ?? 0),
-    inventoryValue: Number(raw.inventoryValue ?? raw.inventory_value ?? raw.inventory ?? 0),
-    currency: raw.currency ?? raw.currencyCode ?? 'EUR',
-  };
+function endOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 }
-
-function normalizeSeriesItem(item: any) {
-  return {
-    date: item.date ?? item.bucket ?? item.label ?? '',
-    amount: Number(item.amount ?? item.totalAmount ?? item.total_amount ?? item.value ?? 0),
-  };
+function startOfYear(d: Date) {
+  return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
 }
-
-function normalizeStoreItem(item: any) {
-  return {
-    storeId: item.storeId ?? item.store_id ?? item.id ?? null,
-    storeName: item.storeName ?? item.store_name ?? item.name ?? 'Magasin',
-    salesAmount: Number(item.salesAmount ?? item.sales_amount ?? item.total ?? item.amount ?? 0),
-  };
+function endOfYear(d: Date) {
+  return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
 }
-
-export default function Page() {
-  const router = useRouter();
-  const [period, setPeriod] = useState<'week'|'month'|'year'>('week');
-  const [startDate, setStartDate] = useState<Date>(() => getStartOfWeek(new Date()));
-  const [endDate, setEndDate] = useState<Date>(() => getEndOfWeek(new Date()));
-
-  const [kpis, setKpis] = useState<any | null>(null);
-  const [salesSeries, setSalesSeries] = useState<any[] | null>(null);
-  const [storesPerf, setStoresPerf] = useState<any[] | null>(null);
-  const [storesAll, setStoresAll] = useState<any[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [dayDetails, setDayDetails] = useState<any[] | null>(null);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [selectedStoreId, setSelectedStoreId] = useState<number | ''>('');
-
-  // helper to format dates to ISO for backend
-  const iso = (d: Date) => d.toISOString();
-
-  useEffect(() => {
-    // compute start/end from period if needed
-    const now = new Date();
-    if (period === 'week') {
-      setStartDate(getStartOfWeek(now));
-      setEndDate(getEndOfWeek(now));
-    } else if (period === 'month') {
-      const s = new Date(now.getFullYear(), now.getMonth(), 1);
-      const e = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      setStartDate(s);
-      setEndDate(e);
-    } else {
-      const s = new Date(now.getFullYear(), 0, 1);
-      const e = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-      setStartDate(s);
-      setEndDate(e);
-    }
-  }, [period]);
-
-  useEffect(() => {
-    async function loadAll() {
-      setLoading(true);
-      try {
-        const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
-        const kUrl = `/api/reports/kpis?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}${storeParam}`;
-        const sUrl = `/api/reports/sales/series?period=${period}&start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}${storeParam}`;
-        const stUrl = `/api/reports/stores?start=${encodeURIComponent(iso(startDate))}&end=${encodeURIComponent(iso(endDate))}`;
-
-        const [kRaw, sRaw, stRaw] = await Promise.all([
-          safeFetchJson(kUrl),
-          safeFetchJson(sUrl),
-          safeFetchJson(stUrl),
-        ]);
-
-        const k = normalizeKpis(kRaw);
-        setKpis(k);
-
-        const seriesArray = Array.isArray(sRaw) ? sRaw : (sRaw?.data ?? []);
-        setSalesSeries(seriesArray.map(normalizeSeriesItem));
-
-        const storesArray = Array.isArray(stRaw) ? stRaw : (stRaw?.data ?? []);
-        setStoresPerf(storesArray.map(normalizeStoreItem));
-      } catch (e) {
-        console.error('Failed to load stats', e);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    // load also the list of all stores (for dropdown) - try /stores first
-    async function loadStoresList() {
-      try {
-        const res = await safeFetchJson('/stores');
-        const arr = Array.isArray(res) ? res : (res?.data ?? []);
-        // normalize store objects
-        const normalized = arr.map((s: any) => ({ id: s.id ?? s.storeId ?? s.store_id, name: s.name ?? s.storeName ?? s.store_name }));
-        setStoresAll(normalized);
-      } catch (e) {
-        console.warn('Could not fetch /stores', e);
-        setStoresAll([]);
-      }
-    }
-
-    loadAll();
-    loadStoresList();
-  }, [period, startDate, endDate, selectedStoreId]);
-
-  const colors = ['#60A5FA', '#34D399', '#F59E0B', '#F97316', '#EF4444'];
-
-  const onBarClick = async (bucketDate: string) => {
+function shiftPeriod(d: Date, period: Period, delta: number) {
+  const next = new Date(d);
+  if (period === 'week') next.setDate(next.getDate() + delta * 7);
+  if (period === 'month') next.setMonth(next.getMonth() + delta);
+  if (period === 'year') next.setFullYear(next.getFullYear() + delta);
+  return next;
+}
+function rangeLabel(period: Period, start: Date, end: Date) {
+  if (period === 'week') {
+    return `${pad(start.getDate())}/${pad(start.getMonth() + 1)} → ${pad(end.getDate())}/${pad(end.getMonth() + 1)}/${end.getFullYear()}`;
+  }
+  if (period === 'month') {
+    return `${MONTHS_FR[start.getMonth()]} ${start.getFullYear()}`;
+  }
+  return `Année ${start.getFullYear()}`;
+}
+function currencyFormatter(currency: string) {
+  return (amount: number) => {
     try {
-      const storeParam = selectedStoreId ? `&storeId=${selectedStoreId}` : '';
-      const res = await safeFetchJson(`/api/reports/sales/day?date=${encodeURIComponent(bucketDate)}${storeParam}`);
-      const rows = Array.isArray(res) ? res : (res?.data ?? []);
-      setDayDetails(rows);
-      setSelectedDay(bucketDate);
-      const el = document.getElementById('day-details');
-      if (el) el.scrollIntoView({ behavior: 'smooth' });
-    } catch (e) {
-      console.error(e);
+      return new Intl.NumberFormat('fr-FR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount || 0);
+    } catch {
+      return `${(amount || 0).toLocaleString('fr-FR')} ${currency}`;
     }
   };
+}
+// Grille de 42 cases (6 semaines x 7 jours), semaine commençant le lundi.
+function buildMonthGrid(anchor: Date): DayCell[] {
+  const today = new Date();
+  const gridStart = startOfWeek(startOfMonth(anchor));
+  const cells: DayCell[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    cells.push({
+      date: d,
+      key: toDateKey(d),
+      inCurrentMonth: d.getMonth() === anchor.getMonth(),
+      isToday: sameDay(d, today),
+    });
+  }
+  return cells;
+}
 
-  const currencyFormat = (value: number, currency = 'EUR') => new Intl.NumberFormat('fr-FR', { style: 'currency', currency }).format(value ?? 0);
+// ----------------------------------------------------------------------------------
+// Composant
+// ----------------------------------------------------------------------------------
+export default function StatsPage() {
+  const router = useRouter();
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+  const [checkingAccess, setCheckingAccess] = useState(true);
+
+  const [period, setPeriod] = useState<Period>('week');
+  const [anchor, setAnchor] = useState<Date>(() => new Date());
+  const [storeFilter, setStoreFilter] = useState<string>('');
+  const [storeOptions, setStoreOptions] = useState<StoreOption[]>([]);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
+  const [kpis, setKpis] = useState<Kpis | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(true);
+
+  const [salesSeries, setSalesSeries] = useState<SalesPoint[] | null>(null);
+  const [salesLoading, setSalesLoading] = useState(true);
+  const [salesError, setSalesError] = useState<string | null>(null);
+
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedDayLabel, setSelectedDayLabel] = useState<string>('');
+  const [dayDetails, setDayDetails] = useState<SaleDetail[] | null>(null);
+  const [dayLoading, setDayLoading] = useState(false);
+
+  const [storesPerf, setStoresPerf] = useState<StorePerf[] | null>(null);
+  const [storesLoading, setStoresLoading] = useState(true);
+
+  // Plage de dates dérivée de la période + de l'ancre courante
+  const { start, end, label } = useMemo(() => {
+    let s: Date, e: Date;
+    if (period === 'week') { s = startOfWeek(anchor); e = endOfWeek(anchor); }
+    else if (period === 'month') { s = startOfMonth(anchor); e = endOfMonth(anchor); }
+    else { s = startOfYear(anchor); e = endOfYear(anchor); }
+    return { start: s, end: e, label: rangeLabel(period, s, e) };
+  }, [period, anchor]);
+
+  const formatCurrency = useMemo(() => currencyFormatter(kpis?.currency ?? 'XOF'), [kpis?.currency]);
+
+  // Contrôle d'accès (ADMIN / MANAGER uniquement, cohérent avec la Sidebar)
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) { router.push('/login'); return; }
+    const role = getStoredUserRole();
+    if (role === 'CASHIER') { router.push('/dashboard'); return; }
+    setCheckingAccess(false);
+  }, [router]);
+
+  const authedFetch = useCallback(async (path: string) => {
+    const token = localStorage.getItem('access_token');
+    const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) {
+      localStorage.removeItem('access_token');
+      router.push('/login');
+      return null;
+    }
+    if (!res.ok) {
+      let message = `Erreur ${res.status}`;
+      try {
+        const errorData = await res.json();
+        if (errorData?.message) {
+          message = Array.isArray(errorData.message) ? errorData.message.join(', ') : errorData.message;
+        }
+      } catch {
+        message = `Erreur HTTP ${res.status} (${res.statusText || 'Requête échouée'}) sur ${path}`;
+      }
+      throw new Error(message);
+    }
+    return res.json();
+  }, [API, router]);
+
+  // Liste des magasins (pour le filtre)
+  useEffect(() => {
+    if (checkingAccess) return;
+    (async () => {
+      try {
+        const data = await authedFetch('/stores');
+        if (!data) return;
+        const list = Array.isArray(data) ? data : (data.data ?? []);
+        setStoreOptions(list.map((s: any) => ({ id: s.id, name: s.name })));
+      } catch (err) {
+        console.error('Impossible de charger la liste des magasins', err);
+      }
+    })();
+  }, [checkingAccess, authedFetch]);
+
+  // KPIs
+  useEffect(() => {
+    if (checkingAccess) return;
+    let canceled = false;
+    (async () => {
+      setKpisLoading(true);
+      try {
+        const storeParam = storeFilter ? `&storeId=${storeFilter}` : '';
+        const data = await authedFetch(`/reports/kpis?start=${start.toISOString()}&end=${end.toISOString()}${storeParam}`);
+        if (!canceled && data) {
+          setKpis({
+            totalRevenue: Number(data.totalRevenue ?? 0),
+            inventoryValue: Number(data.inventoryValue ?? 0),
+            currency: data.currency ?? 'XOF',
+          });
+        }
+      } catch (err) {
+        console.error('Erreur chargement KPIs', err);
+        if (!canceled) setKpis(null);
+      } finally {
+        if (!canceled) setKpisLoading(false);
+      }
+    })();
+    return () => { canceled = true; };
+  }, [checkingAccess, start, end, storeFilter, authedFetch]);
+
+  // Série de ventes (histogramme + indicateurs du calendrier)
+  useEffect(() => {
+    if (checkingAccess) return;
+    let canceled = false;
+    (async () => {
+      setSalesLoading(true);
+      setSalesError(null);
+      try {
+        const storeParam = storeFilter ? `&storeId=${storeFilter}` : '';
+        const data = await authedFetch(
+          `/reports/sales-series?period=${period}&start=${start.toISOString()}&end=${end.toISOString()}${storeParam}`,
+        );
+        if (canceled || !data) return;
+        const rows = Array.isArray(data) ? data : (data.data ?? []);
+        const points: SalesPoint[] = rows.map((row: any) => {
+          const dateKey = row.date ?? row.bucket ?? row.label ?? '';
+          let displayLabel = dateKey;
+          if (period === 'week' && dateKey) {
+            const d = new Date(dateKey);
+            if (!Number.isNaN(d.getTime())) displayLabel = DAYS_FR_SHORT[(d.getDay() + 6) % 7];
+          } else if (period === 'month' && dateKey) {
+            const d = new Date(dateKey);
+            if (!Number.isNaN(d.getTime())) displayLabel = String(d.getDate());
+          } else if (period === 'year' && dateKey) {
+            const monthIndex = /^\d{4}-\d{2}/.test(dateKey) ? Number(dateKey.slice(5, 7)) - 1 : new Date(dateKey).getMonth();
+            displayLabel = MONTHS_FR_SHORT[monthIndex] ?? dateKey;
+          }
+          return {
+            date: dateKey,
+            label: displayLabel,
+            amount: Number(row.amount ?? row.totalAmount ?? row.total ?? 0),
+            count: row.count != null ? Number(row.count) : undefined,
+          };
+        });
+        setSalesSeries(points);
+      } catch (err: any) {
+        console.error('Erreur chargement historique des ventes', err);
+        if (!canceled) {
+          setSalesSeries(null);
+          setSalesError(err?.message || "Impossible de charger l'historique des ventes.");
+        }
+      } finally {
+        if (!canceled) setSalesLoading(false);
+      }
+    })();
+    return () => { canceled = true; };
+  }, [checkingAccess, period, start, end, storeFilter, authedFetch]);
+
+  // Performance des magasins (donut)
+  useEffect(() => {
+    if (checkingAccess) return;
+    let canceled = false;
+    (async () => {
+      setStoresLoading(true);
+      try {
+        const data = await authedFetch(`/reports/stores-perf?start=${start.toISOString()}&end=${end.toISOString()}`);
+        if (canceled || !data) return;
+        const rows = Array.isArray(data) ? data : (data.data ?? []);
+        setStoresPerf(rows.map((row: any) => ({
+          storeId: row.storeId ?? row.store_id ?? row.id,
+          storeName: row.storeName ?? row.store_name ?? row.name ?? 'Magasin',
+          salesAmount: Number(row.salesAmount ?? row.sales_amount ?? row.total ?? 0),
+          salesCount: row.salesCount != null ? Number(row.salesCount) : undefined,
+        })));
+      } catch (err) {
+        console.error('Erreur chargement performance des magasins', err);
+        if (!canceled) setStoresPerf(null);
+      } finally {
+        if (!canceled) setStoresLoading(false);
+      }
+    })();
+    return () => { canceled = true; };
+  }, [checkingAccess, start, end, authedFetch]);
+
+  // Réinitialise le panneau de détail quand la période/plage/magasin change
+  useEffect(() => {
+    setSelectedDay(null);
+    setDayDetails(null);
+  }, [period, start, end, storeFilter]);
+
+  const openDayDetails = useCallback(async (dateKey: string, displayLabel: string) => {
+    setCalendarOpen(false);
+    setSelectedDay(dateKey);
+    setSelectedDayLabel(displayLabel);
+    setDayLoading(true);
+    try {
+      const storeParam = storeFilter ? `&storeId=${storeFilter}` : '';
+      const data = await authedFetch(`/reports/sales/day?date=${encodeURIComponent(dateKey)}${storeParam}`);
+      if (data) {
+        const rows = Array.isArray(data) ? data : (data?.data ?? []);
+        setDayDetails(rows.map((row: any) => ({
+          id: row.id,
+          productName: row.productName ?? row.product_name ?? 'Produit',
+          quantity: Number(row.quantity ?? 0),
+          time: row.time ?? row.createdAt ?? row.created_at,
+          amount: Number(row.amount ?? row.total ?? 0),
+        })));
+      }
+    } catch (err) {
+      console.error('Erreur chargement détails du jour', err);
+      setDayDetails([]);
+    } finally {
+      setDayLoading(false);
+      setTimeout(() => {
+        document.getElementById('day-detail-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    }
+  }, [storeFilter, authedFetch]);
+
+  function goPrev() { setAnchor((d) => shiftPeriod(d, period, -1)); }
+  function goNext() { setAnchor((d) => shiftPeriod(d, period, 1)); }
+  function goToday() { setAnchor(new Date()); setPeriod('week'); }
+
+  // Bascule le filtre magasin au clic sur une part du donut / la légende (clic à nouveau = désactive)
+  function toggleStoreFilter(id: number) {
+    setStoreFilter((current) => (current === String(id) ? '' : String(id)));
+  }
+
+  const totalStoreSales = useMemo(
+    () => (storesPerf ?? []).reduce((sum, s) => sum + s.salesAmount, 0),
+    [storesPerf],
+  );
+
+  // Montant par jour (pour les puces du calendrier mensuel)
+  const amountByDay = useMemo(() => {
+    const map = new Map<string, number>();
+    if (period === 'month' || period === 'week') {
+      (salesSeries ?? []).forEach((p) => { if (p.date) map.set(p.date.slice(0, 10), p.amount); });
+    }
+    return map;
+  }, [salesSeries, period]);
+
+  const monthGrid = useMemo(() => buildMonthGrid(anchor), [anchor]);
+  const weekDays = useMemo(() => {
+    const days: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  }, [start]);
+
+  const activeStoreName = storeOptions.find((s) => String(s.id) === storeFilter)?.name;
+
+  if (checkingAccess) {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+        Vérification de l'accès…
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Menu />
+    <div className="flex h-screen bg-gray-100">
+      <Sidebar />
 
-      <main className="max-w-7xl mx-auto p-4">
-        <h1 className="text-2xl font-semibold mb-4">Rapports & Statistiques</h1>
-
-        {/* KPI cards */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <DashboardCard
-            title="Chiffre d'Affaires Réel"
-            value={kpis ? currencyFormat(Number(kpis.totalRevenue ?? 0), kpis.currency ?? 'EUR') : (loading ? 'Chargement…' : '—')}
-            description={kpis ? 'Somme des ventes sur la période' : undefined}
-          />
-
-          <DashboardCard
-            title="Valeur / Volume d'Inventaire"
-            value={kpis ? currencyFormat(Number(kpis.inventoryValue ?? 0), kpis.currency ?? 'EUR') : (loading ? 'Chargement…' : '—')}
-            description={kpis ? 'Valeur financière du stock courant' : undefined}
-          />
-        </section>
-
-        {/* Controls: period selector and store selector */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-slate-600">Période</label>
-            <select value={period} onChange={(e) => setPeriod(e.target.value as any)} className="ml-2 px-2 py-1 border rounded-md bg-white">
-              <option value="week">Semaine</option>
-              <option value="month">Mois</option>
-              <option value="year">Année</option>
-            </select>
+      <main className="flex-1 overflow-y-auto p-8">
+        {/* En-tête : titre + filtre magasin en haut à droite */}
+        <div className="border-b pb-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Rapports & Statistiques</h1>
+            <p className="mt-1 text-sm text-gray-500">Suivi du chiffre d'affaires, de l'inventaire et des performances par magasin</p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-slate-600">Magasin</label>
+          <div className="flex items-center gap-2 shrink-0">
+            {storeFilter && (
+              <button
+                onClick={() => setStoreFilter('')}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                title="Réinitialiser le filtre magasin"
+              >
+                <CircleX className="size-3.5" /> Réinitialiser
+              </button>
+            )}
             <select
-              value={selectedStoreId}
-              onChange={(e) => setSelectedStoreId(e.target.value ? Number(e.target.value) : '')}
-              className="ml-2 px-2 py-1 border rounded-md bg-white"
+              value={storeFilter}
+              onChange={(e) => setStoreFilter(e.target.value)}
+              className="px-3 py-2 text-sm border rounded-md bg-white shadow-sm min-w-[180px]"
             >
               <option value="">Tous les magasins</option>
-              {storesAll && storesAll.length > 0 ? (
-                storesAll.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))
-              ) : (
-                storesPerf?.map((s) => (
-                  <option key={s.storeId} value={s.storeId}>{s.storeName}</option>
-                ))
-              )}
+              {storeOptions.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
             </select>
           </div>
         </div>
 
-        {/* Sales chart */}
-        <section className="bg-white p-4 rounded-lg shadow-sm mb-6">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold">Historique des ventes</h2>
-            <div className="text-sm text-slate-500">Vue: {period}</div>
-          </div>
+        {/* 1. Cartes KPI */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <DashboardCard
+            title="Chiffre d'Affaires Réel"
+            value={kpis ? formatCurrency(kpis.totalRevenue) : '—'}
+            description={activeStoreName ? `Ventes réalisées — ${activeStoreName}` : 'Somme des ventes réalisées sur la période'}
+            icon={DollarSign}
+            loading={kpisLoading}
+          />
+          <DashboardCard
+            title="Valeur / Volume d'Inventaire"
+            value={kpis ? formatCurrency(kpis.inventoryValue) : '—'}
+            description={activeStoreName ? `Stock courant — ${activeStoreName}` : 'Quantité restante × prix, stock courant'}
+            icon={Boxes}
+            loading={kpisLoading}
+          />
+        </div>
 
-          <div style={{ width: '100%', height: 320 }}>
-            {loading && !salesSeries ? (
-              <div className="h-72 animate-pulse bg-slate-100 rounded" />
-            ) : salesSeries && salesSeries.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={salesSeries} onClick={(e: any) => { if (e && e.activeLabel) onBarClick(e.activeLabel); }}>
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip formatter={(v:any) => currencyFormat(Number(v ?? 0), kpis?.currency ?? 'EUR')} />
-                  <Bar dataKey="amount" fill="#60A5FA" />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-72 flex items-center justify-center text-slate-500">Aucune donnée disponible pour la période sélectionnée</div>
-            )}
-          </div>
+        {/* 2. Historique des ventes & calendrier */}
+        <Card className="mb-6">
+          <CardHeader className="flex flex-col gap-4 pb-2 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <CardTitle className="text-lg">Historique des ventes</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">{label}</p>
+            </div>
 
-          {/* Day details panel - shown when a bar is clicked */}
-          {selectedDay && (
-            <div id="day-details" className="mt-4">
-              <h3 className="text-md font-semibold mb-2">Détails pour le {selectedDay}</h3>
-              {dayDetails === null ? (
-                <div className="text-sm text-slate-500">Chargement…</div>
-              ) : dayDetails.length === 0 ? (
-                <div className="text-sm text-slate-500">Aucune vente ce jour-là.</div>
-              ) : (
-                <div className="grid gap-2">
-                  {dayDetails.map((row: any) => (
-                    <div key={row.id} className="p-2 border rounded bg-white">
-                      <div className="flex justify-between">
-                        <div className="font-medium">{row.productName}</div>
-                        <div className="text-sm text-slate-600">{currencyFormat(Number(row.amount ?? 0), kpis?.currency ?? 'EUR')}</div>
-                      </div>
-                      <div className="text-sm text-slate-500">Quantité: {row.quantity} — Heure: {new Date(row.time).toLocaleTimeString()}</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex bg-muted rounded-md overflow-hidden p-0.5">
+                {(['week', 'month', 'year'] as Period[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { setPeriod(p); setCalendarOpen(false); }}
+                    className={`px-3 py-1.5 text-sm rounded-sm transition-colors ${
+                      period === p ? 'bg-white shadow-sm font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {p === 'week' ? 'Semaine' : p === 'month' ? 'Mois' : 'Année'}
+                  </button>
+                ))}
+              </div>
+
+              <Button variant="outline" size="sm" onClick={goToday}>Aujourd'hui</Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCalendarOpen((o) => !o)}
+                aria-expanded={calendarOpen}
+              >
+                <CalendarDays className="size-4" />
+                Calendrier
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {/* Panneau calendrier "type app mobile" — s'ouvre/se ferme sous les contrôles */}
+            {calendarOpen && (
+              <div className="mb-5 rounded-xl border bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <Button variant="ghost" size="icon" onClick={goPrev} title="Précédent">
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <p className="text-sm font-medium capitalize">
+                    {period === 'year' ? anchor.getFullYear() : `${MONTHS_FR[anchor.getMonth()]} ${anchor.getFullYear()}`}
+                  </p>
+                  <Button variant="ghost" size="icon" onClick={goNext} title="Suivant">
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </div>
+
+                {period === 'week' && (
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {weekDays.map((d) => {
+                      const key = toDateKey(d);
+                      const amount = amountByDay.get(key);
+                      const isSelected = selectedDay === key;
+                      const isToday = sameDay(d, new Date());
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => openDayDetails(key, `${DAYS_FR_SHORT[(d.getDay() + 6) % 7]} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`)}
+                          className={`flex flex-col items-center gap-1 rounded-lg py-2.5 text-xs transition-colors ${
+                            isSelected ? 'bg-primary text-primary-foreground'
+                              : isToday ? 'bg-muted font-medium ring-1 ring-primary/40'
+                              : 'hover:bg-muted'
+                          }`}
+                        >
+                          <span className="uppercase text-[10px] opacity-70">{DAYS_FR_SHORT[(d.getDay() + 6) % 7]}</span>
+                          <span className="text-sm font-semibold">{d.getDate()}</span>
+                          <span className={`size-1.5 rounded-full ${amount ? (isSelected ? 'bg-primary-foreground' : 'bg-primary') : 'bg-transparent'}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {period === 'month' && (
+                  <div>
+                    <div className="grid grid-cols-7 text-center text-[11px] uppercase text-muted-foreground mb-1">
+                      {DAYS_FR_SHORT.map((d) => <div key={d} className="py-1">{d}</div>)}
                     </div>
-                  ))}
+                    <div className="grid grid-cols-7 gap-1">
+                      {monthGrid.map((cell) => {
+                        const amount = amountByDay.get(cell.key);
+                        const isSelected = selectedDay === cell.key;
+                        return (
+                          <button
+                            key={cell.key}
+                            disabled={!cell.inCurrentMonth}
+                            onClick={() => openDayDetails(cell.key, `${pad(cell.date.getDate())}/${pad(cell.date.getMonth() + 1)}/${cell.date.getFullYear()}`)}
+                            className={`aspect-square flex flex-col items-center justify-center gap-0.5 rounded-lg text-xs transition-colors ${
+                              !cell.inCurrentMonth ? 'text-muted-foreground/30 cursor-default'
+                                : isSelected ? 'bg-primary text-primary-foreground'
+                                : cell.isToday ? 'bg-muted font-medium ring-1 ring-primary/40'
+                                : 'hover:bg-muted'
+                            }`}
+                          >
+                            <span>{cell.date.getDate()}</span>
+                            {cell.inCurrentMonth && (
+                              <span className={`size-1 rounded-full ${amount ? (isSelected ? 'bg-primary-foreground' : 'bg-primary') : 'bg-transparent'}`} />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {period === 'year' && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {MONTHS_FR.map((m, i) => (
+                      <button
+                        key={m}
+                        onClick={() => { setAnchor(new Date(anchor.getFullYear(), i, 1)); setPeriod('month'); }}
+                        className={`rounded-lg py-3 text-sm transition-colors ${
+                          i === new Date().getMonth() && anchor.getFullYear() === new Date().getFullYear()
+                            ? 'bg-muted font-medium ring-1 ring-primary/40'
+                            : 'hover:bg-muted'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="w-full h-72">
+              {salesLoading ? (
+                <Skeleton className="h-full w-full" />
+              ) : salesError ? (
+                <div className="h-full flex items-center justify-center text-sm text-destructive">{salesError}</div>
+              ) : salesSeries && salesSeries.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={salesSeries} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`)}
+                    />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(37, 99, 235, 0.08)' }}
+                      formatter={(value: any) => [formatCurrency(Number(value)), 'Ventes']}
+                    />
+                    <Bar
+                      dataKey="amount"
+                      fill="#2563eb"
+                      radius={[4, 4, 0, 0]}
+                      cursor="pointer"
+                      onClick={(point: any) => {
+                        const p = point?.payload;
+                        if (!p?.date) return;
+                        if (period === 'year') {
+                          // Granularité mensuelle en vue année : on bascule sur le mois cliqué
+                          const [y, m] = p.date.split('-').map(Number);
+                          setAnchor(new Date(y, (m ?? 1) - 1, 1));
+                          setPeriod('month');
+                        } else {
+                          openDayDetails(p.date, p.label);
+                        }
+                      }}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                  <PackageSearch className="size-8" />
+                  <p className="text-sm">Aucune donnée disponible pour la période sélectionnée.</p>
                 </div>
               )}
             </div>
-          )}
-        </section>
 
-        {/* Stores performance donut */}
-        <section className="bg-white p-4 rounded-lg shadow-sm">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold">Performance des magasins</h2>
-            <div className="text-sm text-slate-500">Cliquez sur une part pour voir le magasin</div>
-          </div>
+            {/* Panneau de détail du jour sélectionné */}
+            {selectedDay && (
+              <div id="day-detail-panel" className="mt-6 border-t pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Détail des ventes</p>
+                    <p className="font-medium">{selectedDayLabel || selectedDay}</p>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setSelectedDay(null)}>
+                    <X className="size-4" />
+                  </Button>
+                </div>
 
-          <div className="flex flex-col md:flex-row gap-4 items-center">
-            <div style={{ width: 320, height: 320 }}>
-              {loading && !storesPerf ? (
-                <div className="h-80 animate-pulse bg-slate-100 rounded" />
-              ) : storesPerf && storesPerf.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie dataKey="salesAmount" data={storesPerf} nameKey="storeName" cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} onClick={(entry: any, index) => {
-                      const d = storesPerf[index];
-                      if (d?.storeId) router.push(`/stores/${d.storeId}/stats`);
-                    }}>
-                      {storesPerf.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v:any) => currencyFormat(Number(v ?? 0), kpis?.currency ?? 'EUR')} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-80 flex items-center justify-center text-slate-500">Aucune donnée disponible</div>
-              )}
-            </div>
-
-            <div className="flex-1">
-              <ul className="space-y-2">
-                {storesPerf && storesPerf.length > 0 ? storesPerf.map((s, i) => (
-                  <li key={s.storeId} className="p-2 rounded border flex justify-between items-center bg-white">
-                    <div className="flex items-center gap-3">
-                      <span className="w-3 h-3 rounded-full" style={{ background: colors[i % colors.length] }} />
-                      <div>
-                        <div className="font-medium">{s.storeName}</div>
-                        <div className="text-sm text-slate-500">{currencyFormat(Number(s.salesAmount ?? 0), kpis?.currency ?? 'EUR')}</div>
+                {dayLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
+                  </div>
+                ) : dayDetails && dayDetails.length > 0 ? (
+                  <div className="space-y-2">
+                    {dayDetails.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2">
+                        <div>
+                          <p className="font-medium text-sm">{s.productName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {s.time ? new Date(s.time).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">Qté: {s.quantity}</p>
+                          <p className="font-medium text-sm">{formatCurrency(s.amount)}</p>
+                        </div>
                       </div>
-                    </div>
-                    <button onClick={() => router.push(`/stores/${s.storeId}/stats`)} className="text-sm text-blue-600">Voir</button>
-                  </li>
-                )) : (
-                  <li className="text-slate-500">Aucune donnée disponible</li>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-sm text-muted-foreground">Aucune vente enregistrée ce jour-là.</div>
                 )}
-              </ul>
-            </div>
-          </div>
-        </section>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
+        {/* 3. Performance des magasins */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Performance des magasins</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Cliquez sur un magasin pour filtrer la page</p>
+            </div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+          </CardHeader>
+          <CardContent>
+            {storesLoading ? (
+              <div className="h-72 flex items-center justify-center">
+                <Skeleton className="h-56 w-56 rounded-full" />
+              </div>
+            ) : storesPerf && storesPerf.length > 0 ? (
+              <div className="flex flex-col lg:flex-row items-center gap-6">
+                <div className="w-full lg:w-1/2 h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={storesPerf}
+                        dataKey="salesAmount"
+                        nameKey="storeName"
+                        innerRadius={65}
+                        outerRadius={100}
+                        paddingAngle={2}
+                        cursor="pointer"
+                        onClick={(entry: any) => {
+                          const storeId = entry?.payload?.storeId;
+                          if (storeId) toggleStoreFilter(storeId);
+                        }}
+                      >
+                        {storesPerf.map((entry, index) => (
+                          <Cell
+                            key={entry.storeId}
+                            fill={COLORS[index % COLORS.length]}
+                            opacity={storeFilter && storeFilter !== String(entry.storeId) ? 0.35 : 1}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: any, _name: any, props: any) => {
+                          const pct = totalStoreSales > 0 ? ((Number(value) / totalStoreSales) * 100).toFixed(1) : '0';
+                          return [`${formatCurrency(Number(value))} (${pct}%)`, props?.payload?.storeName];
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="w-full lg:w-1/2 space-y-2">
+                  {storesPerf.map((s, i) => {
+                    const pct = totalStoreSales > 0 ? ((s.salesAmount / totalStoreSales) * 100).toFixed(1) : '0';
+                    const isActive = storeFilter === String(s.storeId);
+                    return (
+                      <button
+                        key={s.storeId}
+                        onClick={() => toggleStoreFilter(s.storeId)}
+                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors text-left ${
+                          isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="size-3 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                          <div>
+                            <p className="text-sm font-medium">{s.storeName}</p>
+                            <p className="text-xs text-muted-foreground">{pct}% des ventes</p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-medium">{formatCurrency(s.salesAmount)}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="h-72 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <StoreIcon className="size-8" />
+                <p className="text-sm">Aucune donnée de magasins disponible pour la période sélectionnée.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   );

@@ -300,7 +300,7 @@ function ProductsContent() {
                     </TableCell>
                     {!storeId && (
                       <TableCell className="font-semibold text-blue-600">
-                        🏢 {product.store?.name || `Magasin #${product.storeId}`}
+                        {product.store?.name || `Magasin #${product.storeId}`}
                       </TableCell>
                     )}
 

@@ -225,10 +225,10 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between border-b pb-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              Bonjour {userName || "👋"}
+              Bonjour {userName}
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              {getRoleLabel(role as any)} • Vue adaptée à votre parcours
+              {getRoleLabel(role as any)} — Tableau de bord
             </p>
           </div>
           <div className="space-x-4">
@@ -279,50 +279,58 @@ export default function DashboardPage() {
         )}
 
         <Card>
-          <CardHeader>
-            <CardTitle>Vos Espaces de Stockage</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {profile?.stores?.map((store: any) => (
-                <div
-                  key={store.id}
-                  onClick={() => router.push(`/products?storeId=${store.id}`)}
-                  className="flex flex-col justify-between p-5 border rounded-xl bg-white shadow-sm hover:shadow-md hover:border-blue-500 cursor-pointer transition-all group relative"
-                >
-                  <div>
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-semibold text-lg group-hover:text-blue-600 transition-colors pr-6">
-                        {store.name}
-                      </h3>
-                      {role !== 'CASHIER' && (
-                        <button
-                          onClick={(e) =>
-                            handleDeleteStore(e, store.id, store.name)
-                          }
-                          className="text-gray-400 hover:text-red-500 absolute top-4 right-4"
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">
-                      📍 {store.location || "Emplacement non spécifié"}
-                    </p>
-                  </div>
-                  <div className="mt-6 pt-4 border-t flex justify-between items-center text-sm">
-                    <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 p-1 px-2 rounded">
-                      💰 Devise : {store.currency}
-                    </span>
-                    <span className="font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
-                      {store._count?.products || 0} produits
-                    </span>
-                  </div>
-                </div>
-              ))}
+  <CardHeader>
+    <CardTitle>Vos Espaces de Stockage</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      {profile?.stores?.map((store: any) => {
+        // Comtage dynamique des produits associés à ce magasin
+        const storeProductsCount =
+          profile.products?.filter(
+            (p: any) => p.storeId === store.id || p.store?.id === store.id
+          ).length ?? store._count?.products ?? store.products?.length ?? 0;
+
+        return (
+          <div
+            key={store.id}
+            onClick={() => router.push(`/products?storeId=${store.id}`)}
+            className="flex flex-col justify-between p-5 border rounded-xl bg-white shadow-sm hover:shadow-md hover:border-blue-500 cursor-pointer transition-all group relative"
+          >
+            <div>
+              <div className="flex justify-between items-start">
+                <h3 className="font-semibold text-lg group-hover:text-blue-600 transition-colors pr-6">
+                  {store.name}
+                </h3>
+                {role !== 'CASHIER' && (
+                  <button
+                    onClick={(e) =>
+                      handleDeleteStore(e, store.id, store.name)
+                    }
+                    className="text-gray-400 hover:text-red-500 absolute top-4 right-4"
+                  >
+                    Supprimer
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Lieu: {store.location || "Emplacement non spécifié"}
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="mt-6 pt-4 border-t flex justify-between items-center text-sm">
+              <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 p-1 px-2 rounded">
+                Devise : {store.currency}
+              </span>
+              <span className="font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
+                {storeProductsCount} produit{storeProductsCount > 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </CardContent>
+</Card>
       </main>
 
       {isStaffModalOpen && (
@@ -481,7 +489,7 @@ export default function DashboardPage() {
                   <Label htmlFor="storePhone">Téléphone du magasin *</Label>
                   <Input
                     id="storePhone"
-                    placeholder="Ex: (+229) 1234 5678"
+                    placeholder="Ex: (+229) 01 12 34 56 78"
                     value={newStorePhone}
                     onChange={(e) => setNewStorePhone(e.target.value)}
                     required
