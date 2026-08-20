@@ -593,7 +593,7 @@ export default function SalesPage() {
                       )}
 
                       {isDropdownOpen && (
-                        <div className="absolute left-0 right-0 z-30 max-h-52 overflow-y-auto border border-gray-200 bg-white rounded-lg shadow-xl mt-1 divide-y divide-gray-50">
+                        <div className="absolute left-0 right-0 z-30 max-h-80 overflow-y-auto overscroll-contain scroll-smooth border border-gray-200 bg-white rounded-lg shadow-xl mt-1 divide-y divide-gray-50">
                           {filteredProductOptions.map((p) => (
                             <div
                               key={p.id}
