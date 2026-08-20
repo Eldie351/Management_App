@@ -1,15 +1,20 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ExchangeRateService } from './exchange-rate.service';
 
 @Injectable()
-export class ExchangeRateCronService implements OnModuleInit, OnModuleDestroy {
+export class ExchangeRateCronService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(ExchangeRateCronService.name);
   private cronInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
 
   constructor(private exchangeRateService: ExchangeRateService) {}
 
-  async onModuleInit() {
+  // OnApplicationBootstrap (plutôt que OnModuleInit) : cette phase ne démarre
+  // qu'une fois que TOUS les onModuleInit de l'appli sont terminés, y compris
+  // PrismaService.$connect(). Ça évite qu'une requête Prisma parte pendant que
+  // la connexion pg est encore en train de s'établir (source du warning
+  // "client.query() when the client is already executing a query").
+  async onApplicationBootstrap() {
     this.logger.log('🚀 Initializing Exchange Rate Cron Service...');
     // Fetch rates immediately on startup
     try {
