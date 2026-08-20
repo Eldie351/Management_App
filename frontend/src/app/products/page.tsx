@@ -49,7 +49,6 @@ function ProductsContent() {
   const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
   const [editDescription, setEditDescription] = useState('');
-  const [editQuantity, setEditQuantity] = useState(0);
   const [editMinimumStock, setEditMinimumStock] = useState(5);
   const [editError, setEditError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -163,7 +162,6 @@ function ProductsContent() {
           sku: editSku || null,
           price: Number(editPrice),
           description: editDescription || null,
-          quantity: Number(editQuantity),
           minimumStock: Number(editMinimumStock),
         }),
       });
@@ -433,8 +431,24 @@ function ProductsContent() {
                     </div>
                   </div>
                   <div className="space-y-2 col-span-2">
-                    <Label htmlFor="editProdQty">Quantité actuelle en stock</Label>
-                    <Input id="editProdQty" type="number" min="0" value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))} required />
+                    <Label>Quantité actuelle en stock</Label>
+                    <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                      <span>{editProduct.quantity} unité{editProduct.quantity > 1 ? 's' : ''}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditModalOpen(false);
+                          setSelectedProduct(editProduct);
+                          setIsRechargeModalOpen(true);
+                        }}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Réapprovisionner
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Le stock ne se modifie pas ici : utilisez « Réapprovisionner » pour garder un historique des mouvements.
+                    </p>
                   </div>
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="editProdMinStock">Seuil minimum d’alerte</Label>

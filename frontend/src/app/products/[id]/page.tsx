@@ -62,7 +62,6 @@ export default function ProductDetailsPage() {
   const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
   const [editDescription, setEditDescription] = useState('');
-  const [editQuantity, setEditQuantity] = useState(0);
   const [editMinimumStock, setEditMinimumStock] = useState(5);
   const [editError, setEditError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -101,7 +100,6 @@ export default function ProductDetailsPage() {
         setEditSku(data.general.sku || '');
         setEditPrice(Number(data.general.price ?? 0));
         setEditDescription(data.general.description || '');
-        setEditQuantity(data.stock.currentStock ?? 0);
         setEditMinimumStock(data.stock.minimumStock ?? 5);
       } catch (err: any) {
         setError(err.message);
@@ -170,7 +168,6 @@ export default function ProductDetailsPage() {
           sku: editSku || null,
           price: Number(editPrice),
           description: editDescription || null,
-          quantity: Number(editQuantity),
           minimumStock: Number(editMinimumStock),
         }),
       });
@@ -439,8 +436,20 @@ export default function ProductDetailsPage() {
                   <Input id="editPrice" type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="editQuantity">Quantité en stock</Label>
-                  <Input id="editQuantity" type="number" min="0" value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))} required />
+                  <Label>Quantité en stock</Label>
+                  <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <span>{details.stock.currentStock} unité{details.stock.currentStock > 1 ? 's' : ''}</span>
+                    <button
+                      type="button"
+                      onClick={() => { setIsEditModalOpen(false); setIsRechargeModalOpen(true); }}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Réapprovisionner
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Le stock ne se modifie pas ici : utilisez « Réapprovisionner » pour garder un historique des mouvements.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="editMinStock">Seuil minimum d’alerte</Label>
