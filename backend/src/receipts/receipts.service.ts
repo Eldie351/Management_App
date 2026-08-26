@@ -6,13 +6,19 @@ export class ReceiptsService {
   constructor(private prisma: PrismaService) {}
 
   // storeId and id are numbers in Prisma schema
-  async findAll(storeId?: number) {
+  async findAll(storeId?: number, startISO?: string, endISO?: string) {
     const where: any = {};
     if (typeof storeId !== 'undefined') where.storeId = storeId;
+    if (startISO || endISO) {
+      where.createdAt = {
+        ...(startISO ? { gte: new Date(startISO) } : {}),
+        ...(endISO ? { lte: new Date(endISO) } : {}),
+      };
+    }
     const rows = await this.prisma.sale.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: { items: true },
+      include: { items: true, user: { select: { id: true, name: true } } },
     });
 
     // Map decimals to numbers for frontend friendliness

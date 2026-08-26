@@ -8,7 +8,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { MovementType, UserRole } from '@prisma/client';
-import * as crypto from 'crypto';
 
 @Injectable()
 export class SalesService {
@@ -22,24 +21,35 @@ export class SalesService {
       throw new BadRequestException('Le panier ne peut pas être vide.');
     }
 
-    // 1. Récupérer l'utilisateur pour vérifier son magasin d'affectation et son rôle
+    // 1. Récupérer l'utilisateur avec TOUS ses magasins associés (assigned, owned, assignments)
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, assignedStoreId: true },
+      select: {
+        id: true,
+        role: true,
+        assignedStoreId: true,
+        ownedStores: { select: { id: true } },
+        storeAssignments: { select: { storeId: true } },
+      },
     });
 
     if (!currentUser) {
       throw new NotFoundException('Utilisateur introuvable.');
     }
 
-    // Sécurité : Un caissier ou manager ne peut vendre QUE dans son magasin assigné
-    if (
-      currentUser.role !== UserRole.ADMIN &&
-      currentUser.assignedStoreId !== dto.storeId
-    ) {
-      throw new ForbiddenException(
-        "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
-      );
+    // Sécurité : Vérification dynamique des magasins autorisés si non-ADMIN
+    if (currentUser.role !== UserRole.ADMIN) {
+      const allowedStoreIds = [
+        currentUser.assignedStoreId,
+        ...(currentUser.ownedStores?.map((s) => s.id) ?? []),
+        ...(currentUser.storeAssignments?.map((sa) => sa.storeId) ?? []),
+      ].filter((id): id is number => Boolean(id));
+
+      if (!allowedStoreIds.includes(dto.storeId)) {
+        throw new ForbiddenException(
+          "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
+        );
+      }
     }
 
     // Transaction atomique : tout réussit ou tout est annulé
@@ -70,7 +80,6 @@ export class SalesService {
 
       let calculatedTotalAmount = 0;
 
-      // Déclaration explicite du type pour éviter l'erreur TS 'never[]'
       const verifiedItems: Array<{
         productId: number;
         quantity: number;
@@ -100,7 +109,6 @@ export class SalesService {
           );
         }
 
-        // Sécurité Prix : On utilise unitPrice défini dans le modèle Prisma
         const itemUnitPrice = Number(product.sellingPrice);
         const itemTotal = itemUnitPrice * item.quantity;
         calculatedTotalAmount += itemTotal;
@@ -181,9 +189,7 @@ export class SalesService {
           tx,
         );
       } catch (e) {
-        // Ne pas faire échouer la transaction si la notification échoue;
-        // on continue et on retourne la vente.
-        // (Les erreurs seront loggées par Sentry/monitoring si configuré.)
+        // Ignorer en cas d'erreur de notification
       }
 
       return sale;

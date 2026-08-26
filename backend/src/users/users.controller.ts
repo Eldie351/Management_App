@@ -20,22 +20,31 @@ import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 
 /**
- * Gestion du personnel par l'ADMIN.
- * 
- * Permet aux Administrateurs de créer et gérer les comptes MANAGER et CASHIER.
- * Chaque employé créé est rattaché à l'Admin qui l'a créé (createdById) 
- * et peut être assigné à un magasin spécifique (assignedStoreId).
+ * Gestion des utilisateurs et du personnel.
  */
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  // --- Profil utilisateur (Accessible par tous les rôles) -----------------
+
+  /**
+   * Récupérer le profil de l'utilisateur connecté avec tous ses magasins.
+   */
+  @Get('me')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  async getProfile(@CurrentUser('id') userId: number) {
+    return this.usersService.findProfileWithStores(userId);
+  }
+
+  // --- Gestion du personnel par l'ADMIN -----------------------------------
 
   /**
    * Lister tous les utilisateurs (réservé aux ADMINs).
    */
   @Get()
+  @Roles(UserRole.ADMIN)
   async findAll() {
     return this.usersService.findAll();
   }
@@ -44,6 +53,7 @@ export class UsersController {
    * Créer un membre du personnel (Manager ou Caissier).
    */
   @Post('staff')
+  @Roles(UserRole.ADMIN)
   async createStaff(
     @Body() dto: CreateStaffUserDto,
     @CurrentUser('id') adminId: number,
@@ -52,9 +62,10 @@ export class UsersController {
   }
 
   /**
-   * Lister les comptes managers et caissiers créés par l'administrateur.
+   * Lister les comptes créés par l'administrateur.
    */
   @Get('staff')
+  @Roles(UserRole.ADMIN)
   async findStaffCreatedByAdmin(@CurrentUser('id') adminId: number) {
     return this.usersService.findCreatedByAdmin(adminId);
   }
@@ -63,6 +74,7 @@ export class UsersController {
    * Modifier le rôle d'un utilisateur.
    */
   @Patch(':id/role')
+  @Roles(UserRole.ADMIN)
   async updateRole(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateUserRoleDto,
@@ -78,6 +90,7 @@ export class UsersController {
    * Supprimer un compte utilisateur.
    */
   @Delete(':id')
+  @Roles(UserRole.ADMIN)
   async remove(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser('id') currentUserId: number,

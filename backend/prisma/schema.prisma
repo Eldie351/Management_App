@@ -6,7 +6,6 @@ datasource db {
   provider = "postgresql"
 }
 
-
 enum UserRole {
   ADMIN
   MANAGER
@@ -45,19 +44,19 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  // Traçabilité : Qui a créé ce compte
+  // Traçabilité : Si l'Admin créateur est supprimé, les comptes créés le sont aussi
   createdById     Int?
-  createdBy       User?     @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy       User?     @relation("UserCreator", fields: [createdById], references: [id], onDelete: Cascade)
   createdUsers    User[]    @relation("UserCreator")
 
-  // Magasins dont cet utilisateur est LE PROPRIÉTAIRE (Propriétaire Admin)
+  // Magasins dont cet utilisateur est LE PROPRIÉTAIRE (Suppression en cascade si l'admin est supprimé)
   ownedStores     Store[]   @relation("StoreOwner")
 
-  // Magasin auquel cet utilisateur est AFFECTÉ (Caissier ou Manager)
+  // Magasin auquel cet utilisateur est AFFECTÉ (Suppression de l'employé si le magasin est supprimé)
   assignedStoreId Int?
-  assignedStore   Store?    @relation("AssignedEmployees", fields: [assignedStoreId], references: [id], onDelete: SetNull)
+  assignedStore   Store?    @relation("AssignedEmployees", fields: [assignedStoreId], references: [id], onDelete: Cascade)
 
-  // Magasins supplémentaires ou multiples assignés via une relation explicite
+  // Assignations multiples
   storeAssignments StoreAssignment[] @relation("UserStoreAssignments")
 
   resetToken      ResetToken?
@@ -75,29 +74,28 @@ model ResetToken {
 }
 
 model Store {
-  id             Int             @id @default(autoincrement())
-  name           String
-  location       String?
-  phone          String?
-  currency       Currency        @default(XOF)
-  createdAt      DateTime        @default(now())
+  id            Int               @id @default(autoincrement())
+  name          String
+  location      String?
+  phone         String?
+  currency      Currency          @default(XOF)
+  createdAt     DateTime          @default(now())
 
   // Propriétaire
-  userId         Int
-  owner          User            @relation("StoreOwner", fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  owner         User              @relation("StoreOwner", fields: [userId], references: [id], onDelete: Cascade)
 
-  // Employés rattachés (Caissiers, Managers)
-  employees      User[]          @relation("AssignedEmployees")
+  // Employés rattachés
+  employees     User[]            @relation("AssignedEmployees")
 
-  // Assignations de personnel supplémentaire ou multi-magasin
-  assignedUsers  StoreAssignment[] @relation("StoreAssignments")
+  assignedUsers StoreAssignment[] @relation("StoreAssignments")
 
-  products       Product[]
-  sales          Sale[]
-  categories     Category[]
-  suppliers      Supplier[]
+  products      Product[]
+  sales         Sale[]
+  categories    Category[]
+  suppliers     Supplier[]
   stockMovements StockMovement[]
-  notifications  Notification[]
+  notifications Notification[]
 }
 
 model StoreAssignment {
@@ -116,38 +114,35 @@ model StoreAssignment {
 }
 
 model Product {
-  id            Int       @id @default(autoincrement())
-  name          String
-  description   String?
-  sku           String?
-  barcode       String?
-  imageUrl      String?
-  quantity      Int       @default(0)
-  initialStock  Int       @default(0)
+  id           Int       @id @default(autoincrement())
+  name         String
+  description  String?
+  sku          String?
+  barcode      String?
+  imageUrl     String?
+  quantity     Int       @default(0)
+  initialStock Int       @default(0)
 
-  // --- Seuils logistiques pour les alertes ---
-  minimumStock  Int       @default(5)  // Seuil d'alerte de réapprovisionnement (WARNING)
-  safetyStock   Int       @default(2)  // Seuil de sécurité / urgence absolue (CRITICAL)
-  optimalStock  Int?                   // Stock cible idéal lors d'une commande
-  // -------------------------------------------
+  minimumStock Int       @default(5)
+  safetyStock  Int       @default(2)
+  optimalStock Int?
 
   purchasePrice Float
   sellingPrice  Float
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
-  storeId       Int
-  store         Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  categoryId    Int?
-  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  supplierId    Int?
-  supplier      Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  storeId      Int
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId   Int?
+  category     Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplierId   Int?
+  supplier     Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
-  movements     StockMovement[]
-  saleItems     SaleItem[]
+  movements    StockMovement[]
+  saleItems    SaleItem[]
 
-  // Unicités relatives à un magasin
   @@unique([sku, storeId])
   @@unique([barcode, storeId])
   @@index([storeId, quantity])
@@ -184,7 +179,7 @@ model StockMovement {
   productId Int
   product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
   userId    Int
-  user      User         @relation(fields: [userId], references: [id])
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   storeId   Int
   store     Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -192,16 +187,15 @@ model StockMovement {
   @@index([storeId])
 }
 
-// Vente globale (Ticket / Facture)
 model Sale {
   id            Int           @id @default(autoincrement())
-  invoiceNumber String        @unique // Ex: FAC-20260731-0001
+  invoiceNumber String        @unique
   totalAmount   Float
   paymentMethod PaymentMethod @default(CASH)
   createdAt     DateTime      @default(now())
 
-  userId        Int           // Le Caissier / Utilisateur qui a réalisé la vente
-  user          User          @relation(fields: [userId], references: [id])
+  userId        Int
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   storeId       Int
   store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -211,17 +205,16 @@ model Sale {
   @@index([userId])
 }
 
-// Détail des articles vendus dans une facture
 model SaleItem {
   id        Int     @id @default(autoincrement())
   quantity  Int
-  unitPrice Float   // Prix unitaire au moment de la vente
-  total     Float   // quantity * unitPrice
+  unitPrice Float
+  total     Float
 
   saleId    Int
   sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
   productId Int
-  product   Product @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([saleId])
   @@index([productId])
@@ -257,5 +250,5 @@ model AuditLog {
   entityId  Int
   createdAt DateTime @default(now())
   userId    Int
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

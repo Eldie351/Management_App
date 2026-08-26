@@ -1,4 +1,11 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -16,14 +23,27 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) {
+    this.createTransporter();
+  }
 
   async register(dto: RegisterDto) {
+    const cleanEmail = dto.email.toLowerCase().trim();
+
+    const existingUser = await this.usersService.findByEmail(cleanEmail);
+    if (existingUser) {
+      throw new ConflictException('Un compte avec cet email existe déjà.');
+    }
+
+    // usersService.create() hashe déjà le mot de passe en interne : on lui
+    // passe le mot de passe en clair pour éviter un double hachage, qui
+    // rendait la connexion impossible juste après l'inscription.
     const user = await this.usersService.create(
-      dto.email,
+      cleanEmail,
       dto.name,
       dto.password,
     );
+
     return {
       id: user.id,
       email: user.email,
@@ -34,29 +54,52 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.usersService.findByEmail(dto.email);
-    if (!user) {
+    const cleanEmail = dto.email.toLowerCase().trim();
+    const rawUser = await this.usersService.findByEmail(cleanEmail);
+    if (!rawUser) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const payload = { sub: user.id, email: user.email };
+    const user = rawUser as any;
+
     const isMatch = await bcrypt.compare(dto.password, user.password);
     if (!isMatch) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // Récupération des listes d'objets et des tableaux d'IDs simples
+    const ownedStores = user.ownedStores ?? [];
+    const storeAssignments = user.storeAssignments ?? [];
+
+    const ownedStoreIds = ownedStores.map((s: any) => s.id);
+    const assignedStoreIds = storeAssignments.map((sa: any) => sa.storeId);
+
+    const payload = { 
+      sub: user.id, 
+      email: user.email, 
+      role: user.role,
+      assignedStoreId: user.assignedStoreId ?? null,
+      ownedStores: ownedStoreIds,
+      storeAssignments: assignedStoreIds,
+    };
 
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+      assignedStoreId: user.assignedStoreId ?? null,
+      ownedStores,
+      ownedStoreIds,
+      storeAssignments,
+      assignedStoreIds,
       createdAt: user.createdAt,
       access_token: this.jwtService.sign(payload),
     };
   }
 
   async getProfil(userId: number) {
-    const user = await this.usersService.findByStore(userId); 
+    const user = await this.usersService.findById(userId);
     if (!user) {
       throw new NotFoundException('Utilisateur introuvable');
     }
@@ -68,18 +111,26 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException('Utilisateur introuvable');
     }
-    await this.usersService.delete(userId);    
-    return { 
-      message: `Le compte de ${user.name} et toutes les données associées (magasins, produits) ont été supprimés avec succès.` 
+
+    if (user.role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Action non autorisée. Seuls les administrateurs peuvent supprimer leur compte.',
+      );
+    }
+
+    await this.usersService.delete(userId);
+    return {
+      message: `Le compte de ${user.name} et toutes les données associées ont été supprimés avec succès.`,
     };
   }
 
   async requestPasswordReset(dto: ForgotPasswordDto) {
-    const user = await this.usersService.findByEmail(dto.email);
-    
-    // Always return a success message to prevent user enumeration attacks
+    const cleanEmail = dto.email.toLowerCase().trim();
+    const user = await this.usersService.findByEmail(cleanEmail);
+
     const response: { message: string; resetUrl?: string } = {
-      message: 'Si un compte existe, vous recevrez un email de réinitialisation.',
+      message:
+        'Si un compte existe, vous recevrez un email de réinitialisation.',
     };
 
     if (!user) {
@@ -87,14 +138,17 @@ export class AuthService {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
     const resetUrl = this.buildResetUrl(token);
 
     await this.usersService.setResetToken(user.id, token, expiresAt);
     await this.sendPasswordResetEmail(user.email, resetUrl);
 
-    // FIX: Fallback condition check to ensure development environments safely reveal the URL to the frontend
-    const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'dev';
+    const isDev =
+      !process.env.NODE_ENV ||
+      process.env.NODE_ENV === 'development' ||
+      process.env.NODE_ENV === 'dev';
+
     if (isDev || process.env.SHOW_RESET_LINK === 'true') {
       response.resetUrl = resetUrl;
     }
@@ -104,8 +158,14 @@ export class AuthService {
 
   async resetPassword(dto: ResetPasswordDto) {
     const user = await this.usersService.findByResetToken(dto.token);
-    if (!user || !user.resetTokenExp || new Date(user.resetTokenExp) < new Date()) {
-      throw new BadRequestException('Lien de réinitialisation invalide ou expiré.');
+    if (
+      !user ||
+      !user.resetTokenExp ||
+      new Date(user.resetTokenExp) < new Date()
+    ) {
+      throw new BadRequestException(
+        'Lien de réinitialisation invalide ou expiré.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -126,13 +186,14 @@ export class AuthService {
 
     const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
     const port = Number(process.env.EMAIL_PORT || 465);
-    // FIX: Secure calculation explicitly parses strings properly
     const secure = process.env.EMAIL_SECURE === 'true' || port === 465;
     const user = process.env.EMAIL_USER;
     const pass = process.env.EMAIL_PASS;
 
     if (!user || !pass) {
-      console.warn('SMTP credentials are missing. Password reset email will only be logged.');
+      console.warn(
+        '[SMTP] Identifiants absents dans .env. Le lien sera uniquement affiché en console.',
+      );
       return null;
     }
 
@@ -140,40 +201,34 @@ export class AuthService {
       host,
       port,
       secure,
-      auth: {
-        user,
-        pass,
-      },
+      auth: { user, pass },
     });
 
     return this.transporter;
   }
 
-  private async sendPasswordResetEmail(email: string, resetUrl: string) {
-    const transporter = this.createTransporter();
-
-    if (!transporter) {
-      console.log(`\n--- [DEV EMAIL FALLBACK] ---\nPassword reset link for ${email}:\n${resetUrl}\n----------------------------\n`);
-      return;
-    }
+  async sendPasswordResetEmail(email: string, resetLink: string) {
+    console.log('\n==================================================');
+    console.log('--- [DEV EMAIL FALLBACK] ---');
+    console.log(`Destinataire : ${email}`);
+    console.log(`Lien de réinitialisation : ${resetLink}`);
+    console.log('==================================================\n');
 
     try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'no-reply@localhost',
-        to: email,
-        subject: 'Réinitialisation de votre mot de passe',
-        html: `
-          <p>Bonjour,</p>
-          <p>Vous avez demandé à réinitialiser votre mot de passe.</p>
-          <p><a href="${resetUrl}">Cliquez ici pour choisir un nouveau mot de passe</a></p>
-          <p>Ce lien expirera dans 30 minutes.</p>
-        `,
-        text: `Réinitialisation de votre mot de passe: ${resetUrl}`,
-      });
-      console.log(`Password reset email sent to ${email}`);
-    } catch (error) {
-      console.error('Failed to send password reset email:', error);
-      console.log(`Password reset email fallback for ${email}: ${resetUrl}`);
+      if (this.transporter && process.env.EMAIL_USER) {
+        await this.transporter.sendMail({
+          from: process.env.EMAIL_FROM || '"Mon App" <noreply@example.com>',
+          to: email,
+          subject: 'Réinitialisation de votre mot de passe',
+          html: `<p>Cliquez ici pour réinitialiser votre mot de passe : <a href="${resetLink}">${resetLink}</a></p>`,
+        });
+        console.log(`[SMTP] E-mail envoyé avec succès à ${email}`);
+      }
+    } catch (error: any) {
+      console.error(
+        "[SMTP] Erreur lors de l'envoi de l'e-mail :",
+        error.message,
+      );
     }
   }
 }

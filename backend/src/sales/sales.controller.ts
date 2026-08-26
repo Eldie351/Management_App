@@ -23,6 +23,31 @@ export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
   /**
+   * Helper privé pour vérifier si l'utilisateur a accès aux ventes d'un magasin donné
+   */
+  private checkStoreAccess(user: any, storeId: number) {
+    if (user?.role === UserRole.ADMIN) return;
+
+    // Extraire tous les IDs de magasins autorisés (assigné, possédés et rattachés)
+    const allowedStoreIds = [
+      user?.assignedStoreId,
+      ...(user?.ownedStores?.map((s: any) => s.id ?? s) ?? []),
+      ...(user?.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) ?? []),
+      ...(user?.stores?.map((s: any) => s.id ?? s) ?? []), // Sécurité si `stores` est présent
+    ]
+      .map(Number)
+      .filter((id) => !isNaN(id) && id > 0);
+
+    const targetStoreId = Number(storeId);
+
+    if (!allowedStoreIds.includes(targetStoreId)) {
+      throw new ForbiddenException(
+        "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
+      );
+    }
+  }
+
+  /**
    * Enregistrer une vente et délivrer une facture.
    * Accessible aux Caissiers, Managers et Admins.
    */
@@ -32,22 +57,13 @@ export class SalesController {
     @CurrentUser() user: any,
     @Body() createSaleDto: CreateSaleDto,
   ) {
-    // Sécurité : Un Caissier ou Manager ne peut enregistrer une vente QUE dans son magasin assigné
-    if (
-      user.role !== UserRole.ADMIN &&
-      user.assignedStoreId !== createSaleDto.storeId
-    ) {
-      throw new ForbiddenException(
-        'Vous ne pouvez effectuer de vente que dans votre magasin assigné.',
-      );
-    }
-
+    this.checkStoreAccess(user, createSaleDto.storeId);
     return this.salesService.createSale(user.id, createSaleDto);
   }
 
   /**
    * Historique global des ventes d'un magasin.
-   * Accessible aux Managers et Admins uniquement.
+   * Accessible aux Caissiers, Managers et Admins.
    */
   @Get('store/:storeId')
   @Roles(UserRole.CASHIER, UserRole.MANAGER, UserRole.ADMIN)
@@ -55,13 +71,7 @@ export class SalesController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    // Sécurité : Un Manager ne peut pas consulter les ventes d'un autre magasin
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException(
-        'Vous n\'avez pas accès aux ventes de ce magasin.',
-      );
-    }
-
+    this.checkStoreAccess(user, storeId);
     return this.salesService.findAllByStore(storeId);
   }
 
@@ -76,13 +86,7 @@ export class SalesController {
     @CurrentUser() user: any,
   ) {
     const sale = await this.salesService.findOne(id);
-
-    // Sécurité : Vérifier que la facture appartient au magasin de l'employé
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== sale.storeId) {
-      throw new ForbiddenException(
-        'Vous n\'avez pas accès à cette facture.',
-      );
-    }
+    this.checkStoreAccess(user, sale.storeId);
 
     return sale;
   }
@@ -94,12 +98,7 @@ export class SalesController {
     @CurrentUser() user: any,
   ) {
     const sale = await this.salesService.findOne(id);
-
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== sale.storeId) {
-      throw new ForbiddenException(
-        'Vous ne pouvez supprimer que les factures de votre magasin.',
-      );
-    }
+    this.checkStoreAccess(user, sale.storeId);
 
     await this.salesService.deleteSale(id, user.id);
     return { message: 'Facture supprimée avec succès.' };

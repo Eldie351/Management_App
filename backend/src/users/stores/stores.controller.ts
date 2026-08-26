@@ -27,6 +27,43 @@ export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
   /**
+   * Extrait tous les IDs de magasins autorisés de façon robuste (owned, assigned et storeAssignments)
+   */
+  private extractAllowedStoreIds(user: any): number[] {
+    if (!user) return [];
+
+    const rawIds = [
+      user.assignedStoreId,
+      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id ?? s) || []),
+      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) || []),
+    ];
+
+    return Array.from(
+      new Set(
+        rawIds
+          .map((id) => Number(id))
+          .filter((id): id is number => !isNaN(id) && id > 0),
+      ),
+    );
+  }
+
+  /**
+   * Helper privé pour vérifier si l'utilisateur a accès à un magasin donné
+   */
+  private checkStoreAccess(user: any, storeId: number) {
+    if (user?.role === UserRole.ADMIN) return;
+
+    const allowedStoreIds = this.extractAllowedStoreIds(user);
+    const targetStoreId = Number(storeId);
+
+    if (!allowedStoreIds.includes(targetStoreId)) {
+      throw new ForbiddenException(
+        "Vous n'avez pas la permission d'accéder à ce magasin.",
+      );
+    }
+  }
+
+  /**
    * Créer un magasin : ADMIN uniquement.
    */
   @Post()
@@ -46,23 +83,12 @@ export class StoresController {
 
   /**
    * Liste des magasins accessibles selon le rôle.
-   * Retourne toujours un tableau (Array) pour la cohérence REST.
+   * On passe désormais l'objet user complet.
    */
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
   async findAll(@CurrentUser() user: any) {
-    // L'ADMIN voit tous les magasins qu'il possède/gère
-    if (user.role === UserRole.ADMIN) {
-      return this.storesService.findAllByUser(user.id);
-    }
-
-    // Le MANAGER ou CASHIER ne voit que son magasin assigné (encapsulé dans un tableau)
-    if (user.assignedStoreId) {
-      const store = await this.storesService.findOne(user.assignedStoreId);
-      return store ? [store] : [];
-    }
-
-    return [];
+    return this.storesService.findAllByUser(user);
   }
 
   /**
@@ -74,11 +100,7 @@ export class StoresController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== id) {
-      throw new ForbiddenException(
-        "Vous n'avez pas accès aux détails de ce magasin.",
-      );
-    }
+    this.checkStoreAccess(user, id);
     return this.storesService.findOne(id);
   }
 
@@ -117,13 +139,7 @@ export class StoresController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
   ) {
-    // Sécurité : Un Manager ne peut pas consulter les stats d'un autre magasin
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== id) {
-      throw new ForbiddenException(
-        "Vous n'avez pas la permission de consulter les statistiques de ce magasin.",
-      );
-    }
-
+    this.checkStoreAccess(user, id);
     return this.storesService.getStoreStats(id);
   }
 
@@ -138,12 +154,7 @@ export class StoresController {
     @Query('index', new DefaultValuePipe(0), ParseIntPipe) index: number,
     @CurrentUser() user: any,
   ) {
-    // Sécurité : Vérification de l'affectation du Manager
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== id) {
-      throw new ForbiddenException(
-        "Vous n'avez pas accès à ces données statistiques.",
-      );
-    }
+    this.checkStoreAccess(user, id);
 
     if (period !== 'weekly' && period !== 'monthly' && period !== 'yearly') {
       throw new BadRequestException(

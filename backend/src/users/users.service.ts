@@ -32,7 +32,7 @@ export class UsersService {
   }
 
   /**
-   * Créer un membre du personnel (Manager ou Caissier) rattaché à son créateur et à son magasin.
+   * Créer un membre du personnel (Manager ou Caissier) rattaché à son créateur et à ses magasins.
    */
   async createStaffUser(
     data: {
@@ -90,8 +90,10 @@ export class UsersService {
         assignedStoreId: true,
         createdById: true,
         createdAt: true,
+        ownedStores: { select: { id: true, name: true } },
         storeAssignments: {
           select: {
+            storeId: true,
             store: {
               select: {
                 id: true,
@@ -105,8 +107,29 @@ export class UsersService {
     });
   }
 
+  /**
+   * Trouve un utilisateur par son email en incluant ses magasins possédés et assignés.
+   */
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findUnique({
+      where: { email },
+      include: {
+        ownedStores: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        storeAssignments: {
+          select: {
+            storeId: true,
+            store: {
+              select: { id: true, name: true },
+            },
+          },
+        },
+      },
+    });
   }
 
   /**
@@ -124,8 +147,12 @@ export class UsersService {
         assignedStore: {
           select: { id: true, name: true, location: true },
         },
+        ownedStores: {
+          select: { id: true, name: true },
+        },
         storeAssignments: {
           select: {
+            storeId: true,
             store: {
               select: {
                 id: true,
@@ -141,7 +168,7 @@ export class UsersService {
   }
 
   /**
-   * Trouve tous les utilisateurs rattachés à un magasin (propriétaires et employés assignés).
+   * Trouve tous les utilisateurs rattachés à un magasin (propriétaires, magasin principal et secondaire).
    */
   async findByStore(storeId: number) {
     return this.prisma.user.findMany({
@@ -149,6 +176,7 @@ export class UsersService {
         OR: [
           { ownedStores: { some: { id: storeId } } },
           { assignedStoreId: storeId },
+          { storeAssignments: { some: { storeId } } },
         ],
       },
       select: {
@@ -164,10 +192,10 @@ export class UsersService {
   }
 
   /**
-   * Récupère le profil avec ses magasins possédés (ownedStores) et son magasin assigné (assignedStore).
+   * Récupère le profil complet avec tous ses magasins (possédés, assignés et secondaires).
    */
   async findProfileWithStores(id: number) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
         id: true,
@@ -195,29 +223,70 @@ export class UsersService {
             currency: true,
           },
         },
+        storeAssignments: {
+          select: {
+            storeId: true,
+            store: {
+              select: {
+                id: true,
+                name: true,
+                location: true,
+                currency: true,
+              },
+            },
+          },
+        },
       },
     });
+
+    if (!user) return null;
+
+    const assignedStoresList = user.storeAssignments
+      ?.map((sa) => sa.store)
+      .filter((s) => s !== null) || [];
+
+    return {
+      ...user,
+      stores: assignedStoresList,
+    };
   }
 
   async findById(id: number) {
-    return this.prisma.user.findUnique({ where: { id } });
-  }
-
-  async setResetToken(id: number, token: string, expiresAt: Date) {
-    return this.prisma.user.update({
+    return this.prisma.user.findUnique({
       where: { id },
-      data: {
-        resetTokenExp: expiresAt,
-        resetToken: {
-          upsert: {
-            update: { token, expiresAt },
-            create: { token, expiresAt },
+      include: {
+        ownedStores: {
+          select: { id: true, name: true },
+        },
+        storeAssignments: {
+          select: {
+            storeId: true,
+            store: { select: { id: true, name: true } },
           },
         },
       },
     });
   }
 
+  /**
+   * Enregistre ou met à jour le token de réinitialisation.
+   */
+  async setResetToken(id: number, token: string, expiresAt: Date) {
+    await this.prisma.user.update({
+      where: { id },
+      data: { resetTokenExp: expiresAt },
+    });
+
+    return this.prisma.resetToken.upsert({
+      where: { userId: id },
+      update: { token, expiresAt },
+      create: { userId: id, token, expiresAt },
+    });
+  }
+
+  /**
+   * Retrouve un utilisateur via le token stocké dans la table ResetToken.
+   */
   async findByResetToken(token: string) {
     const tokenRecord = await this.prisma.resetToken.findUnique({
       where: { token },
@@ -234,6 +303,9 @@ export class UsersService {
     };
   }
 
+  /**
+   * Met à jour le mot de passe de l'utilisateur.
+   */
   async updatePassword(id: number, hashedPassword: string) {
     return this.prisma.user.update({
       where: { id },
@@ -241,15 +313,17 @@ export class UsersService {
     });
   }
 
+  /**
+   * Supprime le token de réinitialisation après utilisation.
+   */
   async clearResetToken(id: number) {
+    await this.prisma.resetToken.deleteMany({
+      where: { userId: id },
+    });
+
     return this.prisma.user.update({
       where: { id },
-      data: {
-        resetTokenExp: null,
-        resetToken: {
-          delete: true,
-        },
-      },
+      data: { resetTokenExp: null },
     });
   }
 
@@ -267,6 +341,15 @@ export class UsersService {
         createdAt: true,
         assignedStoreId: true,
         createdById: true,
+        ownedStores: {
+          select: { id: true, name: true },
+        },
+        storeAssignments: {
+          select: {
+            storeId: true,
+            store: { select: { id: true, name: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

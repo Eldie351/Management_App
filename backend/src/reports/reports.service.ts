@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserRole } from '@prisma/client';
 
 type Period = 'week' | 'month' | 'year';
 
@@ -7,41 +8,122 @@ type Period = 'week' | 'month' | 'year';
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  // Shape retournée : { totalRevenue, inventoryValue, currency }
-  async getKpis(startISO: string, endISO: string, storeId?: number) {
-    const start = new Date(startISO);
-    const end = new Date(endISO);
+  /**
+   * Convertit proprement les identifiants d'URL en nombre.
+   * Neutralise 'undefined', 'null', '' et NaN.
+   */
+  private parseId(id?: any): number | undefined {
+    if (id === undefined || id === null || id === '' || id === 'undefined' || id === 'null') {
+      return undefined;
+    }
+    const num = Number(id);
+    return isNaN(num) ? undefined : num;
+  }
 
-    // Chiffre d'affaires réel : somme des ventes réalisées sur la période
+  /**
+   * Extrait tous les IDs de magasins autorisés directement depuis l'objet user JWT.
+   */
+  private extractAllowedStoreIds(user: any): number[] {
+    if (!user) return [];
+
+    const rawIds = [
+      user.assignedStoreId,
+      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id ?? s) || []),
+      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) || []),
+    ];
+
+    return Array.from(
+      new Set(
+        rawIds
+          .map((id) => Number(id))
+          .filter((id): id is number => !isNaN(id) && id > 0),
+      ),
+    );
+  }
+
+  /**
+   * Ajuste et valide la plage de dates pour couvrir la journée entière.
+   */
+  private parseDateRange(startISO?: string, endISO?: string) {
+    const now = new Date();
+    const start = startISO ? new Date(startISO) : new Date(now.getFullYear(), now.getMonth(), 1);
+    let end = endISO ? new Date(endISO) : new Date();
+
+    const validStart = isNaN(start.getTime()) ? new Date() : start;
+    let validEnd = isNaN(end.getTime()) ? new Date() : end;
+
+    if (endISO && (endISO.length <= 10 || endISO.includes('T00:00:00'))) {
+      validEnd.setUTCHours(23, 59, 59, 999);
+    }
+
+    return { start: validStart, end: validEnd };
+  }
+
+  /**
+   * Construit la clause `where` sécurisée pour Prisma.
+   * Vérifie que le magasin demandé appartient bien aux autorisations de l'utilisateur.
+   */
+  private async getStoreFilter(user: any, requestedStoreId?: number): Promise<{ storeId?: any }> {
+    const parsedStoreId = this.parseId(requestedStoreId);
+
+    // 1. Si l'utilisateur est ADMIN
+    if (user?.role === UserRole.ADMIN) {
+      return parsedStoreId ? { storeId: parsedStoreId } : {};
+    }
+
+    // 2. Utilisateurs non-ADMIN (MANAGER, CASHIER, USER, etc.)
+    const allowedStoreIds = this.extractAllowedStoreIds(user);
+
+    // SÉCURITÉ : Aucun magasin assigné/possédé => Bloquer immédiatement
+    if (allowedStoreIds.length === 0) {
+      return { storeId: -1 };
+    }
+
+    // Si un magasin spécifique est demandé
+    if (parsedStoreId !== undefined) {
+      if (allowedStoreIds.includes(parsedStoreId)) {
+        return { storeId: parsedStoreId };
+      }
+      // Tentative d'accès à un magasin non autorisé
+      return { storeId: -1 };
+    }
+
+    // Sinon, restreindre l'ensemble du rapport aux magasins de l'utilisateur
+    return { storeId: { in: allowedStoreIds } };
+  }
+
+  async getKpis(startISO: string, endISO: string, storeId?: number, user?: any) {
+    const { start, end } = this.parseDateRange(startISO, endISO);
+    const storeWhere = await this.getStoreFilter(user, storeId);
+    const parsedStoreId = this.parseId(storeId);
+
     const totalAgg = await this.prisma.sale.aggregate({
       _sum: { totalAmount: true },
       where: {
         createdAt: { gte: start, lte: end },
-        ...(storeId ? { storeId } : {}),
+        ...storeWhere,
       },
     });
     const totalRevenue = totalAgg._sum?.totalAmount ? Number(totalAgg._sum.totalAmount) : 0;
 
-    // Valeur d'inventaire : Σ(quantité restante × prix de vente) du stock courant,
-    // indépendant de la période. Le stock vit directement sur Product (pas de table Inventory).
     const products = await this.prisma.product.findMany({
       where: {
         quantity: { gt: 0 },
         deletedAt: null,
-        ...(storeId ? { storeId } : {}),
+        ...storeWhere,
       },
       select: { quantity: true, sellingPrice: true },
     });
+    
     const inventoryValue = products.reduce(
-      (sum, p) => sum + Number(p.quantity) * Number(p.sellingPrice),
+      (sum, p) => sum + Number(p.quantity || 0) * Number(p.sellingPrice || 0),
       0,
     );
 
-    // Devise : celle du magasin filtré, sinon XOF (FCFA) par défaut.
     let currency = 'XOF';
-    if (storeId) {
+    if (parsedStoreId) {
       const store = await this.prisma.store.findUnique({
-        where: { id: storeId },
+        where: { id: parsedStoreId },
         select: { currency: true },
       });
       if (store?.currency) currency = store.currency;
@@ -50,17 +132,14 @@ export class ReportsService {
     return { totalRevenue, inventoryValue, currency };
   }
 
-  // period: 'week' | 'month' | 'year'
-  // Bucket en JS (plutôt qu'en SQL brut) pour rester indépendant du moteur de BDD
-  // et du fuseau horaire de session Postgres.
-  async getSalesSeries(period: Period, startISO: string, endISO: string, storeId?: number) {
-    const start = new Date(startISO);
-    const end = new Date(endISO);
+  async getSalesSeries(period: Period, startISO: string, endISO: string, storeId?: number, user?: any) {
+    const { start, end } = this.parseDateRange(startISO, endISO);
+    const storeWhere = await this.getStoreFilter(user, storeId);
 
     const sales = await this.prisma.sale.findMany({
       where: {
         createdAt: { gte: start, lte: end },
-        ...(storeId ? { storeId } : {}),
+        ...storeWhere,
       },
       select: { totalAmount: true, createdAt: true },
     });
@@ -68,7 +147,7 @@ export class ReportsService {
     const buckets = new Map<string, number>();
     for (const sale of sales) {
       const key = period === 'year' ? monthKey(sale.createdAt) : dayKey(sale.createdAt);
-      buckets.set(key, (buckets.get(key) ?? 0) + Number(sale.totalAmount));
+      buckets.set(key, (buckets.get(key) ?? 0) + Number(sale.totalAmount || 0));
     }
 
     return Array.from(buckets.entries())
@@ -76,9 +155,10 @@ export class ReportsService {
       .map(([date, amount]) => ({ date, amount }));
   }
 
-  async getSalesDay(dateISO: string, storeId?: number) {
-    // dateISO attendu au format YYYY-MM-DD (clé renvoyée par getSalesSeries).
-    // On construit les bornes en UTC pour rester cohérent avec dayKey().
+  async getSalesDay(dateISO: string, storeId?: number, user?: any) {
+    if (!dateISO) return [];
+    
+    const storeWhere = await this.getStoreFilter(user, storeId);
     const [y, m, d] = dateISO.slice(0, 10).split('-').map(Number);
     const start = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
     const end = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 23, 59, 59, 999));
@@ -86,9 +166,15 @@ export class ReportsService {
     const sales = await this.prisma.sale.findMany({
       where: {
         createdAt: { gte: start, lte: end },
-        ...(storeId ? { storeId } : {}),
+        ...storeWhere,
       },
-      include: { items: { include: { product: true } } },
+      include: { 
+        items: { 
+          include: { 
+            product: { select: { name: true } } 
+          } 
+        } 
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -101,21 +187,21 @@ export class ReportsService {
           productName: item.product?.name ?? 'Produit inconnu',
           quantity: item.quantity,
           time: saleTime,
-          amount: Number(item.total),
+          amount: Number(item.total || 0),
         });
       }
     }
     return out;
   }
 
-  async getStoresPerf(startISO: string, endISO: string, storeId?: number) {
-    const start = new Date(startISO);
-    const end = new Date(endISO);
+  async getStoresPerf(startISO: string, endISO: string, storeId?: number, user?: any) {
+    const { start, end } = this.parseDateRange(startISO, endISO);
+    const storeWhere = await this.getStoreFilter(user, storeId);
 
     const sales = await this.prisma.sale.findMany({
       where: {
         createdAt: { gte: start, lte: end },
-        ...(storeId ? { storeId } : {}),
+        ...storeWhere,
       },
       select: {
         totalAmount: true,
@@ -127,20 +213,143 @@ export class ReportsService {
     for (const sale of sales) {
       if (!sale.store) continue;
       const entry = grouped.get(sale.store.id) ?? { storeName: sale.store.name, salesAmount: 0, salesCount: 0 };
-      entry.salesAmount += Number(sale.totalAmount);
+      entry.salesAmount += Number(sale.totalAmount || 0);
       entry.salesCount += 1;
       grouped.set(sale.store.id, entry);
     }
 
     return Array.from(grouped.entries())
-      .map(([id, v]) => ({ storeId: id, storeName: v.storeName, salesAmount: v.salesAmount, salesCount: v.salesCount }))
+      .map(([id, v]) => ({ 
+        storeId: id, 
+        storeName: v.storeName, 
+        salesAmount: v.salesAmount, 
+        salesCount: v.salesCount 
+      }))
       .sort((a, b) => b.salesAmount - a.salesAmount);
+  }
+
+  async getCashierDailyProducts(
+    startISO: string,
+    endISO: string,
+    storeId?: number,
+    currentUser?: any,
+    filterCashierId?: number,
+  ) {
+    const { start, end } = this.parseDateRange(startISO, endISO);
+    const storeWhere = await this.getStoreFilter(currentUser, storeId);
+    const parsedUserId = this.parseId(filterCashierId);
+
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        ...(parsedUserId ? { userId: parsedUserId } : {}),
+        ...storeWhere,
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        invoiceNumber: true,
+        user: { select: { id: true, name: true, role: true } },
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            total: true,
+            product: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    type DetailedProductRow = {
+      productId: number;
+      productName: string;
+      receiptNumber: string;
+      customerName: string;
+      quantitySold: number;
+      amountSold: number;
+    };
+
+    const byUser = new Map<string, { userId: string | number; userName: string; products: DetailedProductRow[] }>();
+    const soldProductIds = new Set<number>();
+
+    for (const sale of sales) {
+      const userKey = sale.user ? String(sale.user.id) : 'unassigned';
+      const roleLabel = sale.user?.role && sale.user.role !== 'CASHIER' ? ` (${sale.user.role})` : '';
+      const userName = sale.user ? `${sale.user.name}${roleLabel}` : 'Ventes Directes / Non attribué';
+
+      const userGroup = byUser.get(userKey) ?? {
+        userId: sale.user ? sale.user.id : 'unassigned',
+        userName: userName,
+        products: [],
+      };
+
+      const receiptNo = sale.invoiceNumber || `#${sale.id}`;
+      const custName = 'Client passage';
+
+      for (const item of sale.items) {
+        if (!item.product) continue;
+
+        soldProductIds.add(item.product.id);
+
+        userGroup.products.push({
+          productId: item.product.id,
+          productName: item.product.name,
+          receiptNumber: receiptNo,
+          customerName: custName,
+          quantitySold: item.quantity,
+          amountSold: Number(item.total || 0),
+        });
+      }
+
+      byUser.set(userKey, userGroup);
+    }
+
+    const stockById = new Map<number, { quantity: number; sellingPrice: number }>();
+    
+    if (soldProductIds.size > 0) {
+      const stockProducts = await this.prisma.product.findMany({
+        where: {
+          id: { in: Array.from(soldProductIds) },
+        },
+        select: { id: true, quantity: true, sellingPrice: true },
+      });
+
+      for (const p of stockProducts) {
+        stockById.set(p.id, {
+          quantity: p.quantity ?? 0,
+          sellingPrice: Number(p.sellingPrice || 0),
+        });
+      }
+    }
+
+    return Array.from(byUser.values()).map((v) => ({
+      userId: v.userId,
+      userName: v.userName,
+      products: v.products.map((p) => {
+        const stock = stockById.get(p.productId);
+        const remainingStock = stock?.quantity ?? 0;
+        const sellingPrice = stock?.sellingPrice ?? 0;
+        return {
+          productId: p.productId,
+          productName: p.productName,
+          receiptNumber: p.receiptNumber,
+          customerName: p.customerName,
+          quantitySold: p.quantitySold,
+          amountSold: p.amountSold,
+          remainingStock,
+          remainingStockValue: remainingStock * sellingPrice,
+        };
+      }),
+    }));
   }
 }
 
 function dayKey(d: Date) {
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  return d.toISOString().slice(0, 10);
 }
+
 function monthKey(d: Date) {
-  return d.toISOString().slice(0, 7); // YYYY-MM (UTC)
+  return d.toISOString().slice(0, 7);
 }

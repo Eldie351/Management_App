@@ -47,6 +47,53 @@ export class ProductsService {
   ) {}
 
   /**
+   * Extrait tous les IDs de magasins autorisés directement depuis l'utilisateur JWT.
+   */
+  private extractAllowedStoreIds(user: any): number[] {
+    if (!user) return [];
+    
+    const rawIds = [
+      user.assignedStoreId,
+      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id) || []),
+      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id) || []),
+    ];
+
+    return Array.from(new Set(rawIds.filter((id): id is number => Boolean(id))));
+  }
+
+  /**
+   * Construit la condition de filtrage sécurisée par magasin.
+   */
+  private getStoreFilterForUser(user: any, requestedStoreId?: number): any {
+    const parsedStoreId = requestedStoreId ? Number(requestedStoreId) : undefined;
+
+    // 1. Si l'utilisateur est ADMIN
+    if (user?.role === UserRole.ADMIN) {
+      return parsedStoreId ? { id: parsedStoreId } : {};
+    }
+
+    // 2. Si l'utilisateur n'est pas ADMIN
+    const allowedStoreIds = this.extractAllowedStoreIds(user);
+
+    // SÉCURITÉ : Aucun magasin disponible => bloque complètement l'accès
+    if (allowedStoreIds.length === 0) {
+      return { id: -1 };
+    }
+
+    // Si un magasin précis est demandé, vérifier qu'il y a droit
+    if (parsedStoreId) {
+      if (allowedStoreIds.includes(parsedStoreId)) {
+        return { id: parsedStoreId };
+      }
+      // Accès refusé à ce magasin
+      return { id: -1 };
+    }
+
+    // Sinon restreindre à la liste de ses magasins autorisés
+    return { id: { in: allowedStoreIds } };
+  }
+
+  /**
    * Évalue le niveau d'alerte statut d'un produit selon ses seuils
    */
   checkStockStatus(product: {
@@ -203,7 +250,7 @@ export class ProductsService {
     });
   }
 
-  async updateProduct(id: number, dto: UpdateProductDto & { safetyStock?: number; optimalStock?: number }, userId: number) {
+  async updateProduct(id: number, dto: UpdateProductDto & { safetyStock?: number; optimalStock?: number; quantity?: number }, userId: number) {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
 
@@ -228,58 +275,82 @@ export class ProductsService {
       if (!supplierExists) throw new NotFoundException('Fournisseur introuvable.');
     }
 
-    const updatedProduct = await this.prisma.product.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        sku: dto.sku,
-        purchasePrice: dto.price !== undefined ? dto.price : undefined,
-        sellingPrice: dto.price !== undefined ? dto.price : undefined,
-        description: dto.description,
-        storeId: dto.storeId !== undefined ? dto.storeId : undefined,
-        minimumStock: dto.minimumStock !== undefined ? dto.minimumStock : undefined,
-        safetyStock: dto.safetyStock !== undefined ? dto.safetyStock : undefined,
-        optimalStock: dto.optimalStock !== undefined ? dto.optimalStock : undefined,
-        categoryId: dto.categoryId !== undefined ? dto.categoryId : undefined,
-        supplierId: dto.supplierId !== undefined ? dto.supplierId : undefined,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const newQuantity = dto.quantity !== undefined ? Number(dto.quantity) : product.quantity;
+      const delta = newQuantity - product.quantity;
+
+      const updatedProduct = await tx.product.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          sku: dto.sku,
+          quantity: dto.quantity !== undefined ? Number(dto.quantity) : undefined,
+          purchasePrice: dto.price !== undefined ? dto.price : undefined,
+          sellingPrice: dto.price !== undefined ? dto.price : undefined,
+          description: dto.description,
+          storeId: dto.storeId !== undefined ? dto.storeId : undefined,
+          minimumStock: dto.minimumStock !== undefined ? dto.minimumStock : undefined,
+          safetyStock: dto.safetyStock !== undefined ? dto.safetyStock : undefined,
+          optimalStock: dto.optimalStock !== undefined ? dto.optimalStock : undefined,
+          categoryId: dto.categoryId !== undefined ? dto.categoryId : undefined,
+          supplierId: dto.supplierId !== undefined ? dto.supplierId : undefined,
+        },
+      });
+
+      if (delta !== 0) {
+        await tx.stockMovement.create({
+          data: {
+            quantity: delta,
+            type: MovementType.ADJUSTMENT,
+            productId: product.id,
+            storeId: updatedProduct.storeId,
+            userId,
+            note: 'Ajustement manuel via modification de la fiche produit',
+          },
+        });
+      }
+
+      await this.auditLogService.log(
+        userId,
+        `a modifié le produit "${updatedProduct.name}"`,
+        'Product',
+        id,
+        tx,
+      );
+
+      return updatedProduct;
     });
-
-    await this.auditLogService.log(
-      userId,
-      `a modifié le produit "${updatedProduct.name}"`,
-      'Product',
-      id,
-    );
-
-    return updatedProduct;
   }
 
-  async findLowStock(userId: number, storeId?: number) {
+  async findLowStock(user: any, storeId?: number) {
+    const storeFilter = this.getStoreFilterForUser(user, storeId);
+
     const products = await this.prisma.product.findMany({
       where: {
         deletedAt: null,
-        store: storeId
-          ? { id: storeId }
-          : { userId },
+        store: storeFilter,
       },
-      include: { store: { select: { name: true, currency: true } } },
+      include: {
+        store: { select: { name: true, currency: true } },
+      },
       orderBy: { quantity: 'asc' },
     });
 
     return products.filter((p) => p.quantity > 0 && p.quantity <= p.minimumStock);
   }
 
-  async findOutOfStock(userId: number, storeId?: number) {
+  async findOutOfStock(user: any, storeId?: number) {
+    const storeFilter = this.getStoreFilterForUser(user, storeId);
+
     return this.prisma.product.findMany({
       where: {
         deletedAt: null,
         quantity: { lte: 0 },
-        store: storeId
-          ? { id: storeId }
-          : { userId },
+        store: storeFilter,
       },
-      include: { store: { select: { name: true, currency: true } } },
+      include: {
+        store: { select: { name: true, currency: true } },
+      },
       orderBy: { updatedAt: 'desc' },
     });
   }
@@ -334,10 +405,14 @@ export class ProductsService {
       const product = await tx.product.findUnique({ where: { id } });
       if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
 
-      if (user.role !== UserRole.ADMIN && user.assignedStoreId !== product.storeId) {
-        throw new ForbiddenException(
-          "Vous ne pouvez effectuer de vente que dans votre magasin assigné.",
-        );
+      if (user.role !== UserRole.ADMIN) {
+        const allowedStoreIds = this.extractAllowedStoreIds(user);
+
+        if (!allowedStoreIds.includes(product.storeId)) {
+          throw new ForbiddenException(
+            "Vous ne pouvez effectuer de vente que dans l'un de vos magasins autorisés.",
+          );
+        }
       }
 
       if (product.quantity < quantityToSell) {
@@ -627,53 +702,13 @@ export class ProductsService {
     };
   }
 
-  async findAllByUser(user: { id: number; role: UserRole; assignedStoreId?: number | null }) {
-    if (user.role === UserRole.ADMIN) {
-      return this.prisma.product.findMany({
-        where: {
-          deletedAt: null,
-          store: { userId: user.id },
-        },
-        include: {
-          store: {
-            select: {
-              name: true,
-              currency: true,
-            },
-          },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-    }
-
-    const currentUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      select: {
-        assignedStoreId: true,
-        storeAssignments: {
-          select: {
-            storeId: true,
-          },
-        },
-      },
-    });
-
-    const storeIds = [
-      currentUser?.assignedStoreId,
-      ...(currentUser?.storeAssignments.map((assignment) => assignment.storeId) ?? []),
-    ].filter(Boolean) as number[];
-
-    const uniqueStoreIds = Array.from(new Set(storeIds));
-    if (uniqueStoreIds.length === 0) {
-      return [];
-    }
+  async findAllByUser(user: any, storeId?: number) {
+    const storeFilter = this.getStoreFilterForUser(user, storeId);
 
     return this.prisma.product.findMany({
       where: {
         deletedAt: null,
-        storeId: { in: uniqueStoreIds },
+        store: storeFilter,
       },
       include: {
         store: {

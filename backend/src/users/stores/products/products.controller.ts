@@ -31,6 +31,25 @@ export class ProductsController {
     private readonly productsExportService: ProductsExportService,
   ) {}
 
+  /**
+   * Helper privé pour vérifier l'accès d'un utilisateur à un magasin
+   */
+  private checkStoreAccess(user: any, storeId: number) {
+    if (user?.role === UserRole.ADMIN) return;
+
+    const allowedStoreIds = [
+      user?.assignedStoreId,
+      ...(user?.ownedStores?.map((s: any) => s.id ?? s) ?? []),
+      ...(user?.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) ?? []),
+    ].filter((id): id is number => Boolean(id));
+
+    if (!allowedStoreIds.includes(storeId)) {
+      throw new ForbiddenException(
+        "Vous n'avez pas accès aux données de ce magasin.",
+      );
+    }
+  }
+
   // --- Créer / modifier / supprimer -----------------------------------
 
   @Post()
@@ -39,14 +58,7 @@ export class ProductsController {
     @Body() createProductDto: CreateProductDto,
     @CurrentUser() user: any,
   ) {
-    if (
-      user.role === UserRole.MANAGER &&
-      user.assignedStoreId !== createProductDto.storeId
-    ) {
-      throw new ForbiddenException(
-        'Vous ne pouvez ajouter des produits que dans votre magasin assigné.',
-      );
-    }
+    this.checkStoreAccess(user, createProductDto.storeId);
     return this.productsService.createProduct(createProductDto, user.id);
   }
 
@@ -57,6 +69,9 @@ export class ProductsController {
     @Body() updateProductDto: UpdateProductDto,
     @CurrentUser() user: any,
   ) {
+    if (updateProductDto.storeId) {
+      this.checkStoreAccess(user, updateProductDto.storeId);
+    }
     return this.productsService.updateProduct(id, updateProductDto, user.id);
   }
 
@@ -77,13 +92,12 @@ export class ProductsController {
     @CurrentUser() user: any,
     @Query('storeId') storeId?: string,
   ) {
-    const targetStoreId = storeId ? parseInt(storeId, 10) : user.assignedStoreId;
-    
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== targetStoreId) {
-      throw new ForbiddenException('Accès refusé aux données de ce magasin.');
+    const targetStoreId = storeId ? parseInt(storeId, 10) : undefined;
+    if (targetStoreId) {
+      this.checkStoreAccess(user, targetStoreId);
     }
 
-    return this.productsService.findLowStock(user.id, targetStoreId);
+    return this.productsService.findLowStock(user, targetStoreId);
   }
 
   @Get('out-of-stock')
@@ -92,13 +106,12 @@ export class ProductsController {
     @CurrentUser() user: any,
     @Query('storeId') storeId?: string,
   ) {
-    const targetStoreId = storeId ? parseInt(storeId, 10) : user.assignedStoreId;
-
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== targetStoreId) {
-      throw new ForbiddenException('Accès refusé aux données de ce magasin.');
+    const targetStoreId = storeId ? parseInt(storeId, 10) : undefined;
+    if (targetStoreId) {
+      this.checkStoreAccess(user, targetStoreId);
     }
 
-    return this.productsService.findOutOfStock(user.id, targetStoreId);
+    return this.productsService.findOutOfStock(user, targetStoreId);
   }
 
   @Get('store/:storeId/restock-suggestions')
@@ -107,10 +120,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException('Accès refusé aux données de ce magasin.');
-    }
-
+    this.checkStoreAccess(user, storeId);
     return this.productsService.findLowStockProductsByStore(storeId);
   }
 
@@ -126,9 +136,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException('Accès refusé aux produits de ce magasin.');
-    }
+    this.checkStoreAccess(user, storeId);
     return this.productsService.findAllByStore(storeId);
   }
 
@@ -138,10 +146,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException('Accès refusé aux ventes de ce magasin.');
-    }
-
+    this.checkStoreAccess(user, storeId);
     return this.productsService.findSalesByStore(storeId, user.id, user.role);
   }
 
@@ -157,8 +162,16 @@ export class ProductsController {
 
   @Get('user/all')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
-  async findAllByUser(@CurrentUser() user: any) {
-    return this.productsService.findAllByUser(user);
+  async findAllByUser(
+    @CurrentUser() user: any,
+    @Query('storeId') storeId?: string,
+  ) {
+    const targetStoreId = storeId ? parseInt(storeId, 10) : undefined;
+    if (targetStoreId) {
+      this.checkStoreAccess(user, targetStoreId);
+    }
+
+    return this.productsService.findAllByUser(user, targetStoreId);
   }
 
   // --- Mouvements de stock ----------------------------------------------
@@ -169,11 +182,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException(
-        'Accès refusé aux mouvements de stock de ce magasin.',
-      );
-    }
+    this.checkStoreAccess(user, storeId);
     return this.productsService.getStockMovements(storeId);
   }
 
@@ -207,9 +216,7 @@ export class ProductsController {
     @Res() res: Response,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException('Accès refusé.');
-    }
+    this.checkStoreAccess(user, storeId);
 
     const products = await this.productsService.findAllByStore(storeId);
     const buffer = await this.productsExportService.generateProductsExcel(products);
@@ -229,9 +236,7 @@ export class ProductsController {
     @Res() res: Response,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException('Accès refusé.');
-    }
+    this.checkStoreAccess(user, storeId);
 
     const products = await this.productsService.findAllByStore(storeId);
     const buffer = await this.productsExportService.generateProductsPdf(products);

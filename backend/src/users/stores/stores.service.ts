@@ -4,8 +4,8 @@ import {
   ForbiddenException,
   BadRequestException
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service'; // Ajustez le chemin
-import { Currency } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { Currency, UserRole } from '@prisma/client'; // Importation de UserRole
 
 @Injectable()
 export class StoresService {
@@ -48,15 +48,71 @@ export class StoresService {
   }
 
   /**
-   * Récupérer tous les magasins appartenant à un utilisateur ADMIN
+   * Récupérer tous les magasins accessibles à un utilisateur (ADMIN ou employé)
    */
-  async findAllByUser(userId: number) {
+  /**
+   * Récupérer tous les magasins accessibles à un utilisateur (ADMIN ou employé)
+   */
+  async findAllByUser(userOrId: any) {
+    // 1. Extraire l'ID peu importe le format passé (Number, Objet JWT user.id, user.userId ou user.sub)
+    let userId: number | undefined;
+
+    if (typeof userOrId === 'number') {
+      userId = userOrId;
+    } else if (typeof userOrId === 'string' && !isNaN(Number(userOrId))) {
+      userId = Number(userOrId);
+    } else if (userOrId && typeof userOrId === 'object') {
+      userId = Number(userOrId.id || userOrId.userId || userOrId.sub);
+    }
+
+    if (!userId || isNaN(userId)) {
+      throw new BadRequestException('Identifiant utilisateur invalide.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        role: true,
+        assignedStoreId: true,
+        storeAssignments: {
+          select: {
+            storeId: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable.');
+    }
+
+    // 2. Si c'est un ADMIN, on retourne les magasins qu'il possède
+    if (user.role === UserRole.ADMIN) {
+      return this.prisma.store.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    // 3. Pour les autres rôles (MANAGER, CASHIER), on combine le magasin principal et les affectations secondaires
+    const storeIds = [
+      user.assignedStoreId,
+      ...(user.storeAssignments?.map((assignment) => assignment.storeId) ?? []),
+    ].filter((id): id is number => Boolean(id));
+
+    const uniqueStoreIds = Array.from(new Set(storeIds));
+
+    if (uniqueStoreIds.length === 0) {
+      return [];
+    }
+
     return this.prisma.store.findMany({
-      where: { userId },
+      where: {
+        id: { in: uniqueStoreIds },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
-
   /**
    * Mettre à jour un magasin
    */
@@ -125,19 +181,15 @@ export class StoresService {
       const minStock = product.minimumStock ?? 0;
       const explicitSafetyStock = product.safetyStock;
       
-      // Fallback: si pas de safetyStock défini, on utilise la moitié du minimumStock
       const safetyStock =
         explicitSafetyStock !== null && explicitSafetyStock !== undefined
           ? explicitSafetyStock
           : Math.floor(minStock / 2);
           
-      // Fallback: si pas de optimalStock défini, on vise le double du minimumStock
       const optimalStock = product.optimalStock ?? minStock * 2; 
 
-      // -- Valeur du stock
       totalStockValue += qty > 0 ? (qty * Number(product.sellingPrice)) : 0;
 
-      // -- Ventilation des statuts
       if (qty <= 0) {
         outOfStockCount++;
       } else if (qty <= safetyStock) {
@@ -148,7 +200,6 @@ export class StoresService {
         normalStockCount++;
       }
 
-      // -- Synthèse des besoins en réapprovisionnement (Seulement si sous le minStock)
       if (qty <= minStock) {
         productsToRestockCount++;
         const unitsNeeded = optimalStock - qty;
@@ -160,7 +211,6 @@ export class StoresService {
 
     const stockoutRate = totalProducts > 0 ? (outOfStockCount / totalProducts) * 100 : 0;
 
-    // 4. Construction de l'objet de réponse
     return {
       storeId,
       inventory: {
@@ -170,7 +220,7 @@ export class StoresService {
         criticalStockCount,
         warningStockCount,
         normalStockCount,
-        stockoutRate: Number(stockoutRate.toFixed(2)), // Arrondi à 2 décimales
+        stockoutRate: Number(stockoutRate.toFixed(2)),
       },
       restockSummary: {
         productsToRestockCount,
@@ -185,17 +235,14 @@ export class StoresService {
   }
 
   async getSalesForPeriod(storeId: number, period: string, index: number = 1) {
-    await this.findOne(storeId); // Vérifie que le magasin existe
+    await this.findOne(storeId);
 
-    // 1. Détermination de la plage de dates
     const { startDate, endDate } = this.getDateRangeForPeriod(period);
 
-    // 2. Configuration de la pagination
     const limit = 20;
-    const page = Math.max(1, index); // Sécurité : page minimum = 1
+    const page = Math.max(1, index);
     const skip = (page - 1) * limit;
 
-    // 3. Exécution de deux requêtes en parallèle : Agrégation (Total) + Liste des ventes
     const salesAggregate = await this.prisma.sale.aggregate({
       where: {
         storeId,
@@ -215,11 +262,6 @@ export class StoresService {
           lte: endDate,
         },
       },
-      include: {
-        // Décommentez si vous souhaitez inclure les détails des ventes et les infos caissier
-        // items: true,
-        // user: { select: { id: true, firstName: true, lastName: true } }
-      },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
@@ -235,7 +277,6 @@ export class StoresService {
       },
     });
 
-    // 4. Formatage de la réponse
     return {
       periodInfo: {
         requestedPeriod: period,
@@ -255,10 +296,6 @@ export class StoresService {
     };
   }
 
-  /**
-   * Helper : Calcule les dates de début et de fin selon une période donnée
-   * Utilise l'objet Date natif de JavaScript (sans librairie externe)
-   */
   private getDateRangeForPeriod(period: string): { startDate: Date; endDate: Date } {
     const now = new Date();
     let startDate = new Date();
@@ -273,7 +310,6 @@ export class StoresService {
 
       case 'week':
         const day = now.getDay();
-        // Ajuste pour que la semaine commence le lundi (si dimanche, day = 0, on recule de 6 jours)
         const diff = now.getDate() - day + (day === 0 ? -6 : 1);
         startDate = new Date(now.setDate(diff));
         startDate.setHours(0, 0, 0, 0);
@@ -287,7 +323,6 @@ export class StoresService {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         startDate.setHours(0, 0, 0, 0);
         
-        // Le jour '0' du mois suivant correspond au dernier jour du mois actuel
         endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         endDate.setHours(23, 59, 59, 999);
         break;
