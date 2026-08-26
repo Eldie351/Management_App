@@ -1,34 +1,27 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 
-function ResetPasswordContent() {
-  const router = useRouter();
+function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const [token, setToken] = useState('');
+  const router = useRouter();
+  const token = searchParams.get('token');
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    setToken(searchParams.get('token') || '');
-  }, [searchParams]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setMessage('');
+    setError(null);
 
-    if (password.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères.');
+    if (!token) {
+      setError('Jeton de réinitialisation manquant dans l\'URL.');
       return;
     }
 
@@ -37,67 +30,127 @@ function ResetPasswordContent() {
       return;
     }
 
-    setIsSubmitting(true);
+    if (password.length < 8) {
+      setError('Le mot de passe doit contenir au moins 8 caractères.');
+      return;
+    }
+
+    setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3001/auth/reset-password', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const res = await fetch(`${API_URL}/auth/reset-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ token, password }),
       });
 
-      const data = await response.json().catch(() => ({}));
+      const data = await res.json();
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Impossible de réinitialiser le mot de passe.');
+      if (!res.ok) {
+        throw new Error(data.message || 'Une erreur est survenue.');
       }
 
-      setMessage(data.message || 'Mot de passe mis à jour avec succès.');
-      setTimeout(() => router.push('/login'), 1500);
+      setSuccess(true);
+      setTimeout(() => {
+        router.push('/login');
+      }, 3000);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Lien invalide ou expiré.');
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
+  if (!token) {
+    return (
+      <div className="text-center space-y-4">
+        <p className="text-red-600 font-medium">Lien de réinitialisation invalide ou manquant.</p>
+        <Link href="/forgot-password" className="inline-block text-blue-600 hover:underline text-sm font-medium">
+          ← Demander un nouveau lien
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-[420px] shadow-md bg-white">
-        <CardHeader className="text-center">
-          <Link href="/login" className="text-sm text-blue-600 hover:underline">← Retour à la connexion</Link>
-          <CardTitle className="mt-3 text-2xl font-bold">Nouveau mot de passe</CardTitle>
-          <CardDescription>Choisissez un nouveau mot de passe pour votre compte.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-500 text-center">{error}</p>}
-            {message && <p className="rounded-lg bg-green-50 p-2.5 text-sm text-green-600 text-center">{message}</p>}
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg text-center">
+          {error}
+        </div>
+      )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Nouveau mot de passe</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required disabled={isSubmitting} />
-            </div>
+      {success && (
+        <div className="p-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg text-center">
+          Mot de passe réinitialisé avec succès ! Redirection vers la connexion...
+        </div>
+      )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
-              <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required disabled={isSubmitting} />
-            </div>
+      {!success && (
+        <>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nouveau mot de passe
+            </label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-900"
+              placeholder="••••••••"
+            />
+          </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Mise à jour...' : 'Enregistrer le nouveau mot de passe'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Confirmer le mot de passe
+            </label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-900"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Mise à jour...' : 'Réinitialiser le mot de passe'}
+          </button>
+        </>
+      )}
+    </form>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center">Chargement...</div>}>
-      <ResetPasswordContent />
-    </Suspense>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-md space-y-6">
+        <h2 className="text-center text-2xl font-bold text-gray-900">
+          Nouveau mot de passe
+        </h2>
+        
+        <Suspense
+          fallback={
+            <div className="flex py-8 w-full items-center justify-center">
+              <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+            </div>
+          }
+        >
+          <ResetPasswordForm />
+        </Suspense>
+      </div>
+    </div>
   );
 }
+

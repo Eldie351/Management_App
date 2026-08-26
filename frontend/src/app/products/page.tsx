@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,10 +14,12 @@ import { getStoredUserRole } from '@/lib/auth';
 
 function ProductsContent() {
   const router = useRouter();
-  const [role, setRole] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const storeId = searchParams.get('storeId');
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+  const [role, setRole] = useState<string | null>(null);
+  const [activeStoreId, setActiveStoreId] = useState<string | null>(storeId);
 
   // États pour les données
   const [products, setProducts] = useState<any[]>([]);
@@ -48,13 +51,14 @@ function ProductsContent() {
   const [editName, setEditName] = useState('');
   const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
+  const [editQuantity, setEditQuantity] = useState(0);
   const [editDescription, setEditDescription] = useState('');
   const [editMinimumStock, setEditMinimumStock] = useState(5);
   const [editError, setEditError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
   // Fonction pour charger les produits
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     const token = localStorage.getItem('access_token');
     if (!token) {
       router.push('/login');
@@ -62,8 +66,33 @@ function ProductsContent() {
     }
 
     try {
-      const url = storeId
-        ? `${API}/products/store/${storeId}`
+      const userRole = getStoredUserRole();
+      setRole(userRole);
+
+      let currentStoreId = storeId;
+
+      // Uniquement si AUCUN storeId n'est présent dans l'URL ET que l'utilisateur est un CAISSIER
+      if (!currentStoreId && userRole === 'CASHIER') {
+        const profileRes = await fetch(`${API}/auth/profil`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          const assignedId = profile?.assignedStore?.id ?? profile?.assignedStoreId;
+          if (assignedId) {
+            currentStoreId = String(assignedId);
+          }
+        }
+      }
+
+      setActiveStoreId(currentStoreId);
+
+      // Si currentStoreId existe -> /products/store/:id
+      // Sinon (page globale pour les administrateurs) -> /products/user/all
+      const url = currentStoreId
+        ? `${API}/products/store/${currentStoreId}`
         : `${API}/products/user/all`;
 
       const res = await fetch(url, {
@@ -76,18 +105,17 @@ function ProductsContent() {
 
       if (!res.ok) throw new Error('Impossible de charger l’inventaire.');
       const data = await res.json();
-      setProducts(data);
+      setProducts(Array.isArray(data) ? data : data?.data ?? []);
       setLoading(false);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Erreur lors du chargement des produits.');
       setLoading(false);
     }
-  };
+  }, [API, router, storeId]);
 
   useEffect(() => {
-    setRole(getStoredUserRole());
     fetchProducts();
-  }, [storeId, router]);
+  }, [fetchProducts]);
 
   // Filtrage dynamique en temps réel
   const filteredProducts = products.filter((product) => {
@@ -107,6 +135,8 @@ function ProductsContent() {
     setIsSubmitting(true);
     const token = localStorage.getItem('access_token');
 
+    const targetStoreId = storeId || activeStoreId;
+
     try {
       const res = await fetch(`${API}/products`, {
         method: 'POST',
@@ -121,7 +151,7 @@ function ProductsContent() {
           price: Number(price),
           minimumStock: Number(minimumStock),
           description,
-          storeId: Number(storeId),
+          storeId: targetStoreId ? Number(targetStoreId) : undefined,
         }),
       });
 
@@ -212,26 +242,17 @@ function ProductsContent() {
     }
   };
 
-  // Suppression d'un produit
-  const handleDeleteProduct = async (id: number) => {
-    if (!confirm('Voulez-vous vraiment retirer ce produit du stock ?')) return;
-    const token = localStorage.getItem('access_token');
+  if (loading) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100">
+        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+      </div>
+    );
+  }
 
-    try {
-      const res = await fetch(`${API}/products/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-
-      if (!res.ok) throw new Error('Échec de la suppression');
-      fetchProducts();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
-  if (loading) return <div className="flex h-screen items-center justify-center text-lg">Analyse de l’inventaire...</div>;
   if (error) return <div className="flex h-screen items-center justify-center text-red-500 font-semibold">{error}</div>;
+
+  const currentEffectiveStoreId = storeId || activeStoreId;
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -241,18 +262,19 @@ function ProductsContent() {
         <div className="flex items-center justify-between border-b pb-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              {storeId ? 'Gestion du Stock' : 'Inventaire Global'}
+              {currentEffectiveStoreId ? 'Gestion du Stock' : 'Inventaire Global'}
             </h1>
             <p className="text-muted-foreground mt-1">
-              {storeId ? `Entrepôt référencé : #${storeId}` : 'Consultez la totalité des articles en stock'}
+              {currentEffectiveStoreId
+                ? `Entrepôt référencé : #${currentEffectiveStoreId}`
+                : 'Consultez la totalité des articles en stock'}
             </p>
           </div>
-            <div className="space-x-4">
+          <div className="space-x-4">
             <Button variant="outline" onClick={() => router.push('/dashboard')}>← Tableau de bord</Button>
-            {storeId && role !== 'CASHIER' && (
+            {currentEffectiveStoreId && role !== 'CASHIER' && (
               <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
             )}
-            <Button variant="ghost" onClick={() => router.push('/receipts')}>Historique des reçus</Button>
           </div>
         </div>
 
@@ -269,20 +291,24 @@ function ProductsContent() {
 
         {/* Total produits affichés */}
         <div className="mb-4 flex items-center justify-between">
-          <div className="text-sm text-slate-600">Total produits affichés: <span className="font-semibold">{filteredProducts.length}</span> / <span className="text-muted-foreground">{products.length}</span></div>
+          <div className="text-sm text-slate-600">
+            Total produits affichés: <span className="font-semibold">{filteredProducts.length}</span> / <span className="text-muted-foreground">{products.length}</span>
+          </div>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle>Inventaire Logistique</CardTitle>
-            <CardDescription>Suivi précis des volumes, références, stocks de départ recalculés et dates d'entrée.</CardDescription>
+            <CardDescription>Suivi précis des volumes, références et statuts de stock.</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Désignation</TableHead>
-                  {!storeId && <TableHead>Entrepôt</TableHead>}
+                  {(!currentEffectiveStoreId || currentEffectiveStoreId === 'all') && (
+                    <TableHead>Entrepôt</TableHead>
+                  )}
                   <TableHead className="text-center">Stock Actuel</TableHead>
                   <TableHead className="text-center">Status</TableHead>
                   <TableHead className="text-right">Prix Unitaire</TableHead>
@@ -294,11 +320,13 @@ function ProductsContent() {
                   <TableRow key={product.id}>
                     <TableCell className="font-medium">
                       <div>{product.name}</div>
-                      {product.description && <span className="text-xs text-gray-400">{product.description}</span>}
+                      {product.description && (
+                        <span className="text-xs text-gray-400">{product.description}</span>
+                      )}
                     </TableCell>
-                    {!storeId && (
+                    {(!currentEffectiveStoreId || currentEffectiveStoreId === 'all') && (
                       <TableCell className="font-semibold text-blue-600">
-                        {product.store?.name || `Magasin #${product.storeId}`}
+                        {product.store?.name || (product.storeId ? `Magasin #${product.storeId}` : '—')}
                       </TableCell>
                     )}
 
@@ -319,7 +347,10 @@ function ProductsContent() {
                     </TableCell>
 
                     <TableCell className="text-right font-mono font-bold">
-                      {Number(product.sellingPrice ?? 0).toFixed(2)} <span className="text-xs text-blue-600 font-sans uppercase">{product.currency || 'XOF'}</span>
+                      {Number(product.sellingPrice ?? product.price ?? 0).toFixed(2)}{' '}
+                      <span className="text-xs text-blue-600 font-sans uppercase">
+                        {product.currency || product.store?.currency || 'XOF'}
+                      </span>
                     </TableCell>
                     <TableCell className="text-right space-x-2">
                       {role !== 'CASHIER' ? (
@@ -340,7 +371,10 @@ function ProductsContent() {
 
                 {filteredProducts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={storeId ? 7 : 8} className="text-center py-8 text-gray-400">
+                    <TableCell
+                      colSpan={currentEffectiveStoreId && currentEffectiveStoreId !== 'all' ? 5 : 6}
+                      className="text-center py-8 text-gray-400"
+                    >
                       Aucun produit ne correspond à votre recherche.
                     </TableCell>
                   </TableRow>
@@ -412,59 +446,93 @@ function ProductsContent() {
             <CardContent>
               <form onSubmit={handleUpdateProduct} className="space-y-4">
                 {editError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{editError}</p>}
+                
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="editProdName">Nom du produit *</Label>
-                    <Input id="editProdName" value={editName} onChange={(e) => setEditName(e.target.value)} required />
+                    <Input 
+                      id="editProdName" 
+                      value={editName} 
+                      onChange={(e) => setEditName(e.target.value)} 
+                      required 
+                    />
                   </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="editProdSku">Référence interne (SKU)</Label>
-                    <Input id="editProdSku" value={editSku} onChange={(e) => setEditSku(e.target.value)} />
+                    <Input 
+                      id="editProdSku" 
+                      value={editSku} 
+                      onChange={(e) => setEditSku(e.target.value)} 
+                    />
                   </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="editProdPrice">Prix Unitaire *</Label>
                     <div className="relative flex items-center">
-                      <Input id="editProdPrice" type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} required className="pr-16" />
+                      <Input 
+                        id="editProdPrice" 
+                        type="number" 
+                        step="0.01" 
+                        min="0" 
+                        value={editPrice} 
+                        onChange={(e) => setEditPrice(Number(e.target.value))} 
+                        required 
+                        className="pr-16" 
+                      />
                       <span className="absolute right-3 text-xs font-bold text-slate-400 uppercase">
                         {editProduct.currency || 'XOF'}
                       </span>
                     </div>
                   </div>
+
                   <div className="space-y-2 col-span-2">
-                    <Label>Quantité actuelle en stock</Label>
-                    <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                      <span>{editProduct.quantity} unité{editProduct.quantity > 1 ? 's' : ''}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsEditModalOpen(false);
-                          setSelectedProduct(editProduct);
-                          setIsRechargeModalOpen(true);
-                        }}
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        Réapprovisionner
-                      </button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Le stock ne se modifie pas ici : utilisez « Réapprovisionner » pour garder un historique des mouvements.
-                    </p>
+                    <Label htmlFor="editProdQuantity">Quantité en stock *</Label>
+                    <Input 
+                      id="editProdQuantity" 
+                      type="number" 
+                      min="0" 
+                      value={editQuantity} 
+                      onChange={(e) => setEditQuantity(Number(e.target.value))} 
+                      required
+                    />
                   </div>
+
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="editProdMinStock">Seuil minimum d’alerte</Label>
-                    <Input id="editProdMinStock" type="number" min="0" value={editMinimumStock} onChange={(e) => setEditMinimumStock(Number(e.target.value))} />
+                    <Input 
+                      id="editProdMinStock" 
+                      type="number" 
+                      min="0" 
+                      value={editMinimumStock} 
+                      onChange={(e) => setEditMinimumStock(Number(e.target.value))} 
+                    />
                   </div>
+
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="editProdDesc">Description</Label>
-                    <Input id="editProdDesc" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+                    <Input 
+                      id="editProdDesc" 
+                      value={editDescription} 
+                      onChange={(e) => setEditDescription(e.target.value)} 
+                    />
                   </div>
                 </div>
+
                 <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
-                  <Button type="button" variant="outline" onClick={() => {
-                    setIsEditModalOpen(false);
-                    setEditProduct(null);
-                  }}>Annuler</Button>
-                  <Button type="submit" disabled={isEditing}>Enregistrer les modifications</Button>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => {
+                      setIsEditModalOpen(false);
+                      setEditProduct(null);
+                    }}
+                  >
+                    Annuler
+                  </Button>
+                  <Button type="submit" disabled={isEditing}>
+                    {isEditing ? 'Enregistrement...' : 'Enregistrer les modifications'}
+                  </Button>
                 </div>
               </form>
             </CardContent>
@@ -482,7 +550,7 @@ function ProductsContent() {
             <CardContent>
               <form onSubmit={handleProcessRecharge} className="space-y-4">
                 {rechargeError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{rechargeError}</p>}
-                
+
                 <div className="bg-gray-50 p-3 rounded-lg border text-sm space-y-1.5 mb-2">
                   <div className="flex justify-between"><span className="text-gray-500">Stock actuel :</span> <span className="font-semibold">{selectedProduct.quantity} u.</span></div>
                 </div>
@@ -510,7 +578,11 @@ function ProductsContent() {
 
 export default function ProductsPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center text-lg">Initialisation de l’interface...</div>}>
+    <Suspense fallback={
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100">
+        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+      </div>
+    }>
       <ProductsContent />
     </Suspense>
   );

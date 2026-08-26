@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import DashboardCard from '@/components/DashboardCard';
@@ -671,7 +672,13 @@ function StoreDetailContent() {
 
 export default function StoreDetailPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center text-sm text-muted-foreground">Chargement…</div>}>
+    <Suspense
+      fallback={
+        <div className="flex h-[60vh] w-full items-center justify-center">
+          <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+        </div>
+      }
+    >
       <StoreDetailContent />
     </Suspense>
   );

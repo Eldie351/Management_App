@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { getStoredUserRole } from '@/lib/auth';
@@ -80,12 +81,31 @@ export default function StaffPage() {
     fetchStaff();
   }, [router]);
 
+  // 1. ÉCRAN DE CHARGEMENT PLEIN ÉCRAN
+  // Tant que l'API n'a pas répondu, la page n'affiche RIEN d'autre que les points bleus centrés
+  if (loading) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100">
+        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+      </div>
+    );
+  }
+
   const staffByStore = staff.reduce<Record<string, StaffMember[]>>((groups, member) => {
-    const key = member.storeAssignments?.[0]?.store?.name || 'Non assigné';
-    if (!groups[key]) {
-      groups[key] = [];
+    const assignments = member.storeAssignments ?? [];
+    if (assignments.length === 0) {
+      const key = 'Non assigné';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(member);
+      return groups;
     }
-    groups[key].push(member);
+    // Un employé affecté à plusieurs magasins doit apparaître dans la liste
+    // de CHACUN de ces magasins, pas uniquement dans le premier.
+    for (const assignment of assignments) {
+      const key = assignment.store?.name || 'Non assigné';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(member);
+    }
     return groups;
   }, {});
 
@@ -128,6 +148,7 @@ export default function StaffPage() {
     }
   };
 
+  // 2. RENDU DE LA PAGE UNE FOIS LES DONNÉES PRÊTES
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar />
@@ -135,10 +156,14 @@ export default function StaffPage() {
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">Staff administrateur</h1>
-            <p className="mt-2 text-sm text-slate-600">Consultez les comptes Managers et Caissiers créés par votre compte pour chacun de vos magasins.</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Consultez les comptes Managers et Caissiers créés par votre compte pour chacun de vos magasins.
+            </p>
           </div>
           <div className="space-x-2">
-            <Button variant="secondary" onClick={() => router.push('/dashboard')}>Retour au dashboard</Button>
+            <Button variant="secondary" onClick={() => router.push('/dashboard')}>
+              Retour au dashboard
+            </Button>
             <Button onClick={() => window.location.reload()}>Rafraîchir</Button>
           </div>
         </div>
@@ -147,14 +172,15 @@ export default function StaffPage() {
           <Card>
             <CardHeader>
               <CardTitle>Vue d'ensemble du personnel</CardTitle>
-              <CardDescription>Liste des comptes créés par votre compte Admin et affectés aux magasins.</CardDescription>
+              <CardDescription>
+                Liste des comptes créés par votre compte Admin et affectés aux magasins.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {deleteError && <p className="mb-4 text-sm text-red-600">{deleteError}</p>}
               {deleteSuccess && <p className="mb-4 text-sm text-green-600">{deleteSuccess}</p>}
-              {loading ? (
-                <p className="text-sm text-slate-500">Chargement des comptes en cours…</p>
-              ) : error ? (
+
+              {error ? (
                 <p className="text-sm text-red-600">{error}</p>
               ) : staff.length === 0 ? (
                 <p className="text-sm text-slate-500">Aucun manager ni caissier créé pour le moment.</p>
@@ -165,10 +191,15 @@ export default function StaffPage() {
                       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <h2 className="text-xl font-semibold text-slate-900">Magasin : {group.storeName}</h2>
-                          <p className="text-sm text-slate-500">{group.staff.length} compte{group.staff.length > 1 ? 's' : ''}</p>
+                          <p className="text-sm text-slate-500">
+                            {group.staff.length} compte{group.staff.length > 1 ? 's' : ''}
+                          </p>
                         </div>
                         <div className="rounded-full bg-slate-50 px-3 py-1 text-sm text-slate-600">
-                          {group.staff.filter((member) => member.role === 'MANAGER').length} Manager{group.staff.filter((member) => member.role === 'MANAGER').length > 1 ? 's' : ''} • {group.staff.filter((member) => member.role === 'CASHIER').length} Caissier{group.staff.filter((member) => member.role === 'CASHIER').length > 1 ? 's' : ''}
+                          {group.staff.filter((member) => member.role === 'MANAGER').length} Manager
+                          {group.staff.filter((member) => member.role === 'MANAGER').length > 1 ? 's' : ''} •{' '}
+                          {group.staff.filter((member) => member.role === 'CASHIER').length} Caissier
+                          {group.staff.filter((member) => member.role === 'CASHIER').length > 1 ? 's' : ''}
                         </div>
                       </div>
 
@@ -178,6 +209,7 @@ export default function StaffPage() {
                             <TableHead>Nom</TableHead>
                             <TableHead>Email</TableHead>
                             <TableHead>Rôle</TableHead>
+                            <TableHead>Magasins</TableHead>
                             <TableHead>Créé le</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
@@ -188,7 +220,31 @@ export default function StaffPage() {
                               <TableCell>{member.name}</TableCell>
                               <TableCell>{member.email}</TableCell>
                               <TableCell className="font-semibold text-slate-700">{member.role}</TableCell>
-                              <TableCell>{new Date(member.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</TableCell>
+                              <TableCell>
+                                {(member.storeAssignments ?? []).length > 1 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {member.storeAssignments.map((a) => (
+                                      <span
+                                        key={a.store.id}
+                                        className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                                      >
+                                        {a.store.name}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-sm text-slate-500">
+                                    {member.storeAssignments?.[0]?.store?.name ?? '—'}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {new Date(member.createdAt).toLocaleDateString('fr-FR', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </TableCell>
                               <TableCell className="text-right">
                                 <Button
                                   variant="destructive"

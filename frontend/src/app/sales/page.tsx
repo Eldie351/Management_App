@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import { getStoredUserRole, type AppRole } from '@/lib/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Printer, X } from 'lucide-react';
 
 type PaymentMethodType = 'CASH' | 'CARD' | 'MOBILE_MONEY' | 'OTHER';
 
@@ -17,6 +18,7 @@ interface Store {
   name: string;
   location?: string | null;
   currency?: string | null;
+  phone?: string | null;
 }
 
 interface Product {
@@ -76,12 +78,11 @@ interface Profile {
 export default function SalesPage() {
   const router = useRouter();
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  
+
   // États pour les données
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
-  const [salesHistory, setSalesHistory] = useState<Sale[]>([]);
   const [latestSale, setLatestSale] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(true);
   const [storedRole, setStoredRole] = useState<AppRole | null>(null);
@@ -96,28 +97,38 @@ export default function SalesPage() {
   const [discount, setDiscount] = useState<number>(0);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deletingSaleId, setDeletingSaleId] = useState<number | null>(null);
 
   // États pour la barre de recherche de référence interne
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  // Normaliser la liste de magasins : backend peut renvoyer plusieurs formes de données.
-  const storeCandidates = [
-    ...(Array.isArray(profile?.ownedStores) ? profile.ownedStores : profile?.ownedStores ? [profile.ownedStores] : []),
-    ...(Array.isArray(profile?.stores) ? profile.stores : profile?.stores ? [profile.stores] : []),
-    ...(profile?.assignedStore ? [profile.assignedStore] : []),
-  ];
+  // Dédoublonnage et extraction de tous les magasins reçus du profil
+  const getUniqueStores = (data: Profile | null): Store[] => {
+    if (!data) return [];
+    
+    const allList: Store[] = [];
+    
+    if (Array.isArray(data.ownedStores)) allList.push(...data.ownedStores);
+    else if (data.ownedStores) allList.push(data.ownedStores);
 
-  const stores = Array.from(
-    new Map(
-      storeCandidates
-        .filter((store) => store && typeof store === 'object')
-        .map((store) => [String((store as Store).id), store as Store]),
-    ).values(),
-  );
+    if (Array.isArray(data.stores)) allList.push(...data.stores);
+    else if (data.stores) allList.push(data.stores);
 
-  // 1. Charger le profil pour obtenir les magasins de l'utilisateur
+    if (data.assignedStore) allList.push(data.assignedStore);
+
+    const map = new Map<string, Store>();
+    allList.forEach((store) => {
+      if (store && store.id !== undefined && store.id !== null) {
+        map.set(String(store.id), store);
+      }
+    });
+
+    return Array.from(map.values());
+  };
+
+  const stores = getUniqueStores(profile);
+
+  // 1. Charger le profil pour obtenir les magasins
   useEffect(() => {
     const fetchProfile = async () => {
       const token = localStorage.getItem('access_token');
@@ -132,26 +143,20 @@ export default function SalesPage() {
           headers: { 'Authorization': `Bearer ${token}` },
         });
 
-        if (!res.ok) {
-          throw new Error('Session expirée');
-        }
+        if (!res.ok) throw new Error('Session expirée');
 
-        const data = await res.json();
-        console.log('Profile reçu du backend:', data);
-        if (data.stores) {
-          console.log('Stores disponibles:', JSON.stringify(data.stores, null, 2));
-        }
-
+        const data: Profile = await res.json();
         setProfile(data);
-        setStoredRole(getStoredUserRole());
+        const userRole = getStoredUserRole();
+        setStoredRole(userRole);
 
-        const assignedId = data?.assignedStore?.id ?? data?.assignedStoreId ?? null;
-        if (assignedId) {
-          setSelectedStoreId(String(assignedId));
-        } else if (Array.isArray(data.ownedStores) && data.ownedStores.length === 1) {
-          setSelectedStoreId(String(data.ownedStores[0].id));
-        } else if (Array.isArray(data.stores) && data.stores.length === 1) {
-          setSelectedStoreId(String(data.stores[0].id));
+        // Sélection automatique uniquement s'il n'y a qu'un seul magasin
+        // disponible (peu importe le rôle) — sinon on laisse le sélecteur
+        // de magasin s'afficher pour que l'utilisateur choisisse parmi
+        // TOUS ses magasins assignés.
+        const availableStores = getUniqueStores(data);
+        if (availableStores.length === 1) {
+          setSelectedStoreId(String(availableStores[0].id));
         }
       } catch {
         localStorage.removeItem('access_token');
@@ -185,32 +190,15 @@ export default function SalesPage() {
     }
   }, [API]);
 
-  const fetchSalesHistory = useCallback(async (storeId: string) => {
-    if (!storeId) return;
-
-    const token = localStorage.getItem('access_token');
-    try {
-      const res = await fetch(`${API}/sales/store/${storeId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setSalesHistory(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Erreur chargement historique:', err);
-    }
-  }, [API]);
-
   useEffect(() => {
     if (!selectedStoreId) return;
 
     const loadStoreData = async () => {
       await fetchProductsForStore(selectedStoreId);
-      await fetchSalesHistory(selectedStoreId);
     };
 
     loadStoreData();
-  }, [selectedStoreId, fetchProductsForStore, fetchSalesHistory]);
+  }, [selectedStoreId, fetchProductsForStore]);
 
   const handleSelectStore = (storeId: string) => {
     setSelectedStoreId(storeId);
@@ -218,11 +206,11 @@ export default function SalesPage() {
     setFormError('');
   };
 
-  // Extraction dynamique et sécurisée de la monnaie de l'entrepôt courant
-  const currentStoreObj = stores.find((s: Store) => s.id.toString() === selectedStoreId.toString());
+  // Monnaie du magasin sélectionné
+  const currentStoreObj = stores.find((s: Store) => String(s.id) === String(selectedStoreId));
   const storeCurrency = currentStoreObj?.currency || 'XOF';
 
-  // Filtrage dynamique des produits dans le formulaire
+  // Filtrage des produits dans le champ de recherche
   const filteredProductOptions = storeProducts.filter((p) => {
     const query = productSearchQuery.toLowerCase().trim();
     if (!query) return true;
@@ -232,7 +220,7 @@ export default function SalesPage() {
     );
   });
 
-  const currentSelectedProductObj = storeProducts.find(p => p.id.toString() === selectedProductId);
+  const currentSelectedProductObj = storeProducts.find(p => String(p.id) === selectedProductId);
 
   const addToCart = () => {
     setFormError('');
@@ -359,7 +347,6 @@ export default function SalesPage() {
       });
       setCart([]);
       await fetchProductsForStore(selectedStoreId);
-      await fetchSalesHistory(selectedStoreId);
       setAmountReceived(0);
       setDiscount(0);
       setCustomerName('Client de passage');
@@ -368,49 +355,6 @@ export default function SalesPage() {
       setFormError(err instanceof Error ? err.message : 'Une erreur est survenue.');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const fetchSaleDetails = async (saleId: number) => {
-    const token = localStorage.getItem('access_token');
-    try {
-      const res = await fetch(`${API}/sales/${saleId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setLatestSale(data);
-    } catch (err) {
-      console.error('Erreur chargement facture:', err);
-    }
-  };
-
-  const handleDeleteSale = async (saleId: number) => {
-    if (!confirm('Supprimer cette facture ? Cette opération annule également la vente.')) {
-      return;
-    }
-
-    const token = localStorage.getItem('access_token');
-    setDeletingSaleId(saleId);
-
-    try {
-      const res = await fetch(`${API}/sales/${saleId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.message || 'Impossible de supprimer la facture.');
-      }
-      await fetchSalesHistory(selectedStoreId);
-      if (latestSale?.id === saleId) {
-        setLatestSale(null);
-      }
-    } catch (err) {
-      console.error('Erreur suppression facture:', err);
-      setFormError(err instanceof Error ? err.message : 'Erreur suppression facture.');
-    } finally {
-      setDeletingSaleId(null);
     }
   };
 
@@ -495,7 +439,13 @@ export default function SalesPage() {
     setTimeout(() => { w.print(); w.close(); }, 300);
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center">Initialisation du registre...</div>;
+  if (loading) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100">
+        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -512,7 +462,7 @@ export default function SalesPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {stores.length > 0 ? (
                 stores.map((store: Store) => (
-                  <Card key={store.id} className="cursor-pointer hover:border-blue-500 hover:shadow-lg transition-shadow" onClick={() => handleSelectStore(store.id.toString())}>
+                  <Card key={store.id} className="cursor-pointer hover:border-blue-500 hover:shadow-lg transition-shadow bg-white" onClick={() => handleSelectStore(String(store.id))}>
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <CardTitle>{store.name}</CardTitle>
@@ -531,7 +481,7 @@ export default function SalesPage() {
                 ))
               ) : (
                 <Card>
-                  <CardContent>
+                  <CardContent className="pt-6">
                     <p className="text-sm text-gray-600">Aucun magasin associé à votre compte. Veuillez en créer un pour commencer.</p>
                   </CardContent>
                 </Card>
@@ -547,13 +497,39 @@ export default function SalesPage() {
               </div>
 
               <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm" onClick={() => setSelectedStoreId('')}>
-                  Changer de magasin
+                <Button variant="outline" size="sm" onClick={() => router.push(`/receipts?storeId=${selectedStoreId}`)}>
+                  Flux de transactions
                 </Button>
+                {storedRole !== 'CASHIER' && (
+                  <Button variant="outline" size="sm" onClick={() => setSelectedStoreId('')}>
+                    Changer de magasin
+                  </Button>
+                )}
               </div>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
+            {latestSale && (
+              <Card className="mb-6 border-green-200 bg-green-50/50">
+                <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-green-800 text-lg">Facture {latestSale.invoiceNumber} enregistrée</CardTitle>
+                    <CardDescription className="text-green-600">
+                      Montant total : <strong>{Number(latestSale.totalAmount).toFixed(2)} {storeCurrency}</strong> | Client : {latestSale.customerName || 'Client de passage'}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => printLatestSale(latestSale)}>
+                      <Printer className="size-4 mr-1.5" /> Imprimer le reçu
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => setLatestSale(null)}>
+                      <X className="size-4 text-gray-500" />
+                    </Button>
+                  </div>
+                </CardHeader>
+              </Card>
+            )}
+
+            <div className="grid gap-6 md:grid-cols-3 mb-6">
               <Card className="h-fit">
                 <CardHeader>
                   <CardTitle>Catalogue & Panier</CardTitle>
@@ -658,7 +634,7 @@ export default function SalesPage() {
                 </CardHeader>
                 <CardContent>
                   {cart.length === 0 ? (
-                    <div className="text-sm text-gray-500">Aucun produit dans le panier pour le moment.</div>
+                    <div className="text-sm text-gray-500 py-6 text-center">Aucun produit dans le panier pour le moment.</div>
                   ) : (
                     <div className="space-y-4">
                       <div className="overflow-x-auto">
@@ -686,7 +662,7 @@ export default function SalesPage() {
                                     max={item.availableQuantity}
                                     value={item.quantity}
                                     onChange={(e) => updateCartQuantity(item.productId, Number(e.target.value))}
-                                    className="w-20 text-sm"
+                                    className="w-20 text-sm mx-auto"
                                   />
                                 </td>
                                 <td className="py-2 text-right">{Number(item.unitPrice).toFixed(2)}</td>
@@ -719,7 +695,7 @@ export default function SalesPage() {
                               id="paymentMethod"
                               value={paymentMethod}
                               onChange={(e) => setPaymentMethod(e.target.value as PaymentMethodType)}
-                              className="w-full rounded-lg border p-2 text-sm"
+                              className="w-full rounded-lg border p-2 text-sm bg-white"
                             >
                               <option value="CASH">Espèces</option>
                               <option value="MOBILE_MONEY">MoMo</option>
@@ -731,7 +707,7 @@ export default function SalesPage() {
 
                         <div className="space-y-3">
                           <div>
-                            <Label htmlFor="discount">Remise (FCFA)</Label>
+                            <Label htmlFor="discount">Remise ({storeCurrency})</Label>
                             <Input
                               id="discount"
                               type="number"
@@ -741,7 +717,7 @@ export default function SalesPage() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="amountReceived">Montant reçu (FCFA)</Label>
+                            <Label htmlFor="amountReceived">Montant reçu ({storeCurrency})</Label>
                             <Input
                               id="amountReceived"
                               type="number"
@@ -756,19 +732,19 @@ export default function SalesPage() {
                       <div className="rounded-lg border bg-gray-50 p-4 text-sm">
                         <div className="flex justify-between py-1">
                           <span>Sous-total</span>
-                          <strong>{cartSubtotal.toFixed(2)} FCFA</strong>
+                          <strong>{cartSubtotal.toFixed(2)} {storeCurrency}</strong>
                         </div>
                         <div className="flex justify-between py-1">
                           <span>Remise</span>
-                          <strong>- {cartDiscount.toFixed(2)} FCFA</strong>
+                          <strong>- {cartDiscount.toFixed(2)} {storeCurrency}</strong>
                         </div>
                         <div className="border-t pt-2 flex justify-between font-semibold">
                           <span>TOTAL À PAYER</span>
-                          <strong>{cartTotal.toFixed(2)} FCFA</strong>
+                          <strong>{cartTotal.toFixed(2)} {storeCurrency}</strong>
                         </div>
                         <div className="border-t pt-2 flex justify-between text-sm text-gray-600">
                           <span>Rendu</span>
-                          <strong>{changeAmount >= 0 ? changeAmount.toFixed(2) : '0.00'} FCFA</strong>
+                          <strong>{changeAmount >= 0 ? changeAmount.toFixed(2) : '0.00'} {storeCurrency}</strong>
                         </div>
                       </div>
 
@@ -784,107 +760,10 @@ export default function SalesPage() {
                   )}
                 </CardContent>
               </Card>
-
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>Flux de Transactions Récents</CardTitle>
-              <CardDescription>Historique permanent des ventes effectuées lues depuis PostgreSQL.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date / Heure</TableHead>
-                    <TableHead>Article</TableHead>
-                    <TableHead className="text-center">Quantité</TableHead>
-                    <TableHead className="text-right">Chiffre d&apos;Affaires</TableHead>
-                    <TableHead className="text-center">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {salesHistory.map((sale) => {
-                    const firstItem = sale.items && sale.items.length > 0 ? sale.items[0] : null;
-                    const totalQty = sale.items ? sale.items.reduce((s: number, it: SaleItem) => s + (it.quantity || 0), 0) : 0;
-                    return (
-                      <TableRow key={sale.id} className="bg-green-50/10">
-                        <TableCell className="font-mono text-xs text-gray-500">
-                          {sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('fr-FR', {
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          }) : 'Maintenant'}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium text-gray-800">{firstItem?.product?.name ?? '—'}</div>
-                          {firstItem?.product?.sku && <span className="text-xs font-mono text-gray-400">SKU: {firstItem.product.sku}</span>}
-                        </TableCell>
-                        <TableCell className="text-center font-semibold text-red-600">-{totalQty}</TableCell>
-                        <TableCell className="text-right font-mono font-bold text-green-600">
-                          +{Number(sale.totalAmount).toFixed(2)} {storeCurrency}
-                        </TableCell>
-                        <TableCell className="text-center space-x-2">
-                          <Button size="sm" variant="outline" onClick={() => fetchSaleDetails(sale.id)}>Reçu</Button>
-                          {(storedRole === 'ADMIN' || storedRole === 'MANAGER') && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDeleteSale(sale.id)}
-                              disabled={deletingSaleId === sale.id}
-                            >
-                              {deletingSaleId === sale.id ? 'Suppression...' : 'Supprimer'}
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-
-                  {salesHistory.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 text-gray-400">
-                        Aucune vente enregistrée pour cet entrepôt dans PostgreSQL.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
             </div>
           </>
         )}
       </main>
-      {latestSale && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-6 bg-black/40">
-          <div className="bg-white p-6 rounded-lg w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">Reçu — {latestSale.invoiceNumber}</h3>
-              <button onClick={() => setLatestSale(null)} className="text-gray-500">✕</button>
-            </div>
-            <div className="text-sm">
-              <p><strong>Magasin:</strong> {latestSale.store?.name}</p>
-              <p><strong>Date:</strong> {new Date(latestSale.createdAt).toLocaleString()}</p>
-              <p><strong>Caissier:</strong> {latestSale.user?.name}</p>
-            </div>
-            <table className="w-full mt-3 text-sm">
-              <thead><tr><th className="text-left">Article</th><th>Qté</th><th className="text-right">Montant</th></tr></thead>
-              <tbody>
-                {latestSale.items?.map((it: SaleItem) => (
-                  <tr key={it.id ?? `${it.product?.id}-${it.quantity}`}><td>{it.product?.name}</td><td>{it.quantity}</td><td className="text-right">{Number(it.total).toFixed(2)}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="flex justify-between items-center mt-4">
-              <div className="font-bold">Total: {Number(latestSale.totalAmount).toFixed(2)} {currentStoreObj?.currency ?? 'XOF'}</div>
-              <div className="space-x-2">
-                <Button onClick={() => printLatestSale(latestSale)}>Imprimer</Button>
-                <Button variant="ghost" onClick={() => setLatestSale(null)}>Fermer</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

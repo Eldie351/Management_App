@@ -1,31 +1,35 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { persistUserSession } from '@/lib/auth';
+import { LoadingDots } from '@/components/ui/loading_dots';
+import { persistUserSession, clearUserSession } from '@/lib/auth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const router = useRouter();
+
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
+    
+    // Nettoyage immédiat pour éviter toute fuite de session
+    clearUserSession();
 
     try {
-      const response = await fetch('http://localhost:3001/auth/login', {
+      const response = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -37,10 +41,19 @@ export default function LoginPage() {
         throw new Error(message);
       }
 
-      persistUserSession({ access_token: data.access_token, role: data.role, name: data.name });
-      router.push('/dashboard');
+      // Enregistrement des nouvelles informations de session
+      persistUserSession({ 
+        access_token: data.access_token, 
+        role: data.role, 
+        name: data.name 
+      });
+
+      // FORCER UN RECHARGEMENT COMPLET :
+      // Réinitialise tout l'état React / SWR / Axios et charge les données du compte connecté
+      window.location.href = '/dashboard';
     } catch (err: any) {
-      setError(err.message);
+      clearUserSession();
+      setError(err.message || 'Une erreur est survenue lors de la connexion.');
       setIsSubmitting(false);
     }
   };
@@ -48,7 +61,7 @@ export default function LoginPage() {
   return (
     <div className="flex h-screen flex-col items-center justify-center bg-gray-50 px-4 relative">
       
-      {/* 1. BOUTON DE RETOUR FLOTTANT (EN HAUT À GAUCHE) */}
+      {/* BOUTON DE RETOUR FLOTTANT */}
       <Link 
         href="/" 
         className="absolute top-6 left-6 flex items-center space-x-2 text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
@@ -59,7 +72,7 @@ export default function LoginPage() {
 
       <Card className="w-full max-w-[400px] shadow-md bg-white">
         <CardHeader className="space-y-1 text-center">
-          {/* 2. LE LOGO EST CLIQUABLE */}
+          {/* LOGO CLIQUABLE */}
           <Link href="/" className="inline-block mb-2 text-2xl font-bold text-gray-900 tracking-tight hover:opacity-80 transition-opacity">
             Octo<span className="text-blue-600">Stock</span>
           </Link>
@@ -102,8 +115,16 @@ export default function LoginPage() {
               />
             </div>
             
-            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 font-medium h-10 mt-2" disabled={isSubmitting}>
-              {isSubmitting ? 'Connexion en cours...' : 'Se connecter'}
+            <Button 
+              type="submit" 
+              className="w-full bg-blue-600 hover:bg-blue-700 font-medium h-10 mt-2 flex items-center justify-center" 
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <LoadingDots size="h-2 w-2" color="bg-white" />
+              ) : (
+                'Se connecter'
+              )}
             </Button>
 
             <div className="text-center text-sm">

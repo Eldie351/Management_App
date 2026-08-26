@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import DashboardCard from '@/components/DashboardCard';
 import { Button } from '@/components/ui/button';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -79,7 +80,7 @@ interface DayCell {
 }
 
 // ----------------------------------------------------------------------------------
-// Constantes & helpers date (aucune dépendance externe requise)
+// Constantes & helpers date
 // ----------------------------------------------------------------------------------
 const MONTHS_FR = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -149,7 +150,6 @@ function currencyFormatter(currency: string) {
     }
   };
 }
-// Grille de 42 cases (6 semaines x 7 jours), semaine commençant le lundi.
 function buildMonthGrid(anchor: Date): DayCell[] {
   const today = new Date();
   const gridStart = startOfWeek(startOfMonth(anchor));
@@ -168,7 +168,7 @@ function buildMonthGrid(anchor: Date): DayCell[] {
 }
 
 // ----------------------------------------------------------------------------------
-// Composant
+// Composant principal
 // ----------------------------------------------------------------------------------
 export default function StatsPage() {
   const router = useRouter();
@@ -197,12 +197,9 @@ export default function StatsPage() {
   const [storesPerf, setStoresPerf] = useState<StorePerf[] | null>(null);
   const [storesLoading, setStoresLoading] = useState(true);
 
-  // Les graphiques Recharts ne sont rendus qu'une fois montés côté client,
-  // pour éviter tout écart de rendu serveur/client (hydration mismatch).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Plage de dates dérivée de la période + de l'ancre courante
   const { start, end, label } = useMemo(() => {
     let s: Date, e: Date;
     if (period === 'week') { s = startOfWeek(anchor); e = endOfWeek(anchor); }
@@ -213,7 +210,6 @@ export default function StatsPage() {
 
   const formatCurrency = useMemo(() => currencyFormatter(kpis?.currency ?? 'XOF'), [kpis?.currency]);
 
-  // Contrôle d'accès (ADMIN / MANAGER uniquement, cohérent avec la Sidebar)
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (!token) { router.push('/login'); return; }
@@ -245,7 +241,6 @@ export default function StatsPage() {
     return res.json();
   }, [API, router]);
 
-  // Liste des magasins (pour le filtre)
   useEffect(() => {
     if (checkingAccess) return;
     (async () => {
@@ -260,7 +255,6 @@ export default function StatsPage() {
     })();
   }, [checkingAccess, authedFetch]);
 
-  // KPIs
   useEffect(() => {
     if (checkingAccess) return;
     let canceled = false;
@@ -286,7 +280,6 @@ export default function StatsPage() {
     return () => { canceled = true; };
   }, [checkingAccess, start, end, storeFilter, authedFetch]);
 
-  // Série de ventes (histogramme + indicateurs du calendrier)
   useEffect(() => {
     if (checkingAccess) return;
     let canceled = false;
@@ -334,7 +327,6 @@ export default function StatsPage() {
     return () => { canceled = true; };
   }, [checkingAccess, period, start, end, storeFilter, authedFetch]);
 
-  // Performance des magasins (donut)
   useEffect(() => {
     if (checkingAccess) return;
     let canceled = false;
@@ -360,7 +352,6 @@ export default function StatsPage() {
     return () => { canceled = true; };
   }, [checkingAccess, start, end, authedFetch]);
 
-  // Réinitialise le panneau de détail quand la période/plage/magasin change
   useEffect(() => {
     setSelectedDay(null);
     setDayDetails(null);
@@ -399,13 +390,6 @@ export default function StatsPage() {
   function goNext() { setAnchor((d) => shiftPeriod(d, period, 1)); }
   function goToday() { setAnchor(new Date()); setPeriod('week'); }
 
-  // Bascule le filtre magasin (utilisé par le sélecteur en haut de page uniquement)
-  function toggleStoreFilter(id: number) {
-    setStoreFilter((current) => (current === String(id) ? '' : String(id)));
-  }
-
-  // Clic sur une part du donut ou sur un magasin de la liste : direction la page
-  // dédiée de ce magasin, en conservant la période et la plage de dates choisies.
   function goToStoreDetail(id: number) {
     const params = new URLSearchParams({
       period,
@@ -419,7 +403,6 @@ export default function StatsPage() {
     [storesPerf],
   );
 
-  // Montant par jour (pour les puces du calendrier mensuel)
   const amountByDay = useMemo(() => {
     const map = new Map<string, number>();
     if (period === 'month' || period === 'week') {
@@ -441,10 +424,11 @@ export default function StatsPage() {
 
   const activeStoreName = storeOptions.find((s) => String(s.id) === storeFilter)?.name;
 
+  // ÉCRAN DE CHARGEMENT PLEIN ÉCRAN
   if (checkingAccess) {
     return (
-      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
-        Vérification de l'accès…
+      <div className="flex min-h-screen w-full items-center justify-center bg-gray-100">
+        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
       </div>
     );
   }
@@ -454,7 +438,6 @@ export default function StatsPage() {
       <Sidebar />
 
       <main className="flex-1 overflow-y-auto p-8">
-        {/* En-tête : titre + filtre magasin en haut à droite */}
         <div className="border-b pb-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Rapports & Statistiques</h1>
@@ -540,7 +523,6 @@ export default function StatsPage() {
           </CardHeader>
 
           <CardContent>
-            {/* Panneau calendrier "type app mobile" — s'ouvre/se ferme sous les contrôles */}
             {calendarOpen && (
               <div className="mb-5 rounded-xl border bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
@@ -662,7 +644,6 @@ export default function StatsPage() {
                         const p = point?.payload;
                         if (!p?.date) return;
                         if (period === 'year') {
-                          // Granularité mensuelle en vue année : on bascule sur le mois cliqué
                           const [y, m] = p.date.split('-').map(Number);
                           setAnchor(new Date(y, (m ?? 1) - 1, 1));
                           setPeriod('month');
@@ -681,7 +662,6 @@ export default function StatsPage() {
               )}
             </div>
 
-            {/* Panneau de détail du jour sélectionné */}
             {selectedDay && (
               <div id="day-detail-panel" className="mt-6 border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
@@ -776,43 +756,46 @@ export default function StatsPage() {
                       />
                     </PieChart>
                   </ResponsiveContainer>
-                  {/* Total au centre du donut */}
-                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-xs text-muted-foreground">Total</p>
-                    <p className="text-lg font-semibold tabular-nums">{formatCurrency(totalStoreSales)}</p>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-xs text-muted-foreground">Total</span>
+                    <span className="text-sm font-bold">{formatCurrency(totalStoreSales)}</span>
                   </div>
                 </div>
 
-                <div className="w-full lg:w-1/2 space-y-2">
-                  {storesPerf.map((s, i) => {
-                    const pct = totalStoreSales > 0 ? ((s.salesAmount / totalStoreSales) * 100).toFixed(1) : '0';
+                <div className="w-full lg:w-1/2 space-y-3">
+                  {storesPerf.map((store, index) => {
+                    const pct = totalStoreSales > 0 ? ((store.salesAmount / totalStoreSales) * 100).toFixed(1) : '0';
                     return (
-                      <button
-                        key={s.storeId}
-                        onClick={() => goToStoreDetail(s.storeId)}
-                        title={`Voir l'historique détaillé de ${s.storeName}`}
-                        className="w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors text-left hover:bg-muted/50 hover:border-primary/40"
+                      <div
+                        key={store.storeId}
+                        onClick={() => goToStoreDetail(store.storeId)}
+                        className="flex items-center justify-between p-3 rounded-lg bg-white border shadow-sm hover:border-primary cursor-pointer transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="size-3 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                          <span
+                            className="size-3 rounded-full shrink-0"
+                            style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                          />
                           <div>
-                            <p className="text-sm font-medium">{s.storeName}</p>
+                            <p className="font-medium text-sm">{store.storeName}</p>
                             <p className="text-xs text-muted-foreground">{pct}% des ventes</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium">{formatCurrency(s.salesAmount)}</p>
-                          <ChevronRight className="size-4 text-muted-foreground" />
+                        <div className="text-right">
+                          <p className="font-bold text-sm">{formatCurrency(store.salesAmount)}</p>
+                          {store.salesCount != null && (
+                            <p className="text-xs text-muted-foreground">{store.salesCount} vente(s)</p>
+                          )}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
               </div>
             ) : (
-              <div className="h-72 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+              <div className="h-48 flex flex-col items-center justify-center gap-2 text-muted-foreground">
                 <StoreIcon className="size-8" />
-                <p className="text-sm">Aucune donnée de magasins disponible pour la période sélectionnée.</p>
+                <p className="text-sm">Aucune donnée de magasin pour cette période.</p>
               </div>
             )}
           </CardContent>

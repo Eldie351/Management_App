@@ -20,7 +20,8 @@ export function getStoredUserRole(): AppRole | null {
   const storedRole = normalizeRole(localStorage.getItem(ROLE_STORAGE_KEY));
   if (storedRole) return storedRole;
 
-  const token = localStorage.getItem('access_token');
+  // Recherche sur 'access_token' ou fallback sur 'token'
+  const token = localStorage.getItem('access_token') || localStorage.getItem('token');
   if (!token) return null;
 
   try {
@@ -44,10 +45,19 @@ export function getStoredUserName(): string {
 export function persistUserSession(data: { access_token: string; role?: string | null; name?: string | null }) {
   if (typeof window === 'undefined') return;
 
+  // 1. OBLIGATOIRE : Nettoyer l'ancienne session avant d'enregistrer la nouvelle
+  clearUserSession();
+
+  // 2. Stocker le token sous les 2 clés standards pour éviter toute fuite avec Axios/Fetch
   localStorage.setItem('access_token', data.access_token);
+  localStorage.setItem('token', data.access_token);
+
+  // 3. Stocker le rôle (ou nettoyer si absent)
   if (data.role) {
     localStorage.setItem(ROLE_STORAGE_KEY, data.role.toUpperCase());
   }
+
+  // 4. Stocker le nom (ou nettoyer si absent)
   if (data.name) {
     localStorage.setItem(USER_NAME_STORAGE_KEY, data.name);
   }
@@ -56,9 +66,15 @@ export function persistUserSession(data: { access_token: string; role?: string |
 export function clearUserSession() {
   if (typeof window === 'undefined') return;
 
+  // Nettoyage complet de toutes les clés de session
   localStorage.removeItem('access_token');
+  localStorage.removeItem('token');
   localStorage.removeItem(ROLE_STORAGE_KEY);
   localStorage.removeItem(USER_NAME_STORAGE_KEY);
+  localStorage.removeItem('user');
+
+  // Purge du sessionStorage au cas où Axios/SWR l'utiliserait en cache
+  sessionStorage.clear();
 }
 
 export function getRoleLabel(role: AppRole | null | undefined) {

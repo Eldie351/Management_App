@@ -61,6 +61,7 @@ export default function ProductDetailsPage() {
   const [editName, setEditName] = useState('');
   const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
+  const [editQuantity, setEditQuantity] = useState(0);
   const [editDescription, setEditDescription] = useState('');
   const [editMinimumStock, setEditMinimumStock] = useState(5);
   const [editError, setEditError] = useState('');
@@ -99,6 +100,7 @@ export default function ProductDetailsPage() {
         setEditName(data.general.name || '');
         setEditSku(data.general.sku || '');
         setEditPrice(Number(data.general.price ?? 0));
+        setEditQuantity(data.stock.currentStock ?? 0);
         setEditDescription(data.general.description || '');
         setEditMinimumStock(data.stock.minimumStock ?? 5);
       } catch (err: any) {
@@ -119,6 +121,19 @@ export default function ProductDetailsPage() {
       router.push('/products');
     }
   }, [role, router]);
+
+  const handleOpenEditModal = () => {
+    if (details) {
+      setEditName(details.general.name || '');
+      setEditSku(details.general.sku || '');
+      setEditPrice(Number(details.general.price ?? 0));
+      setEditQuantity(details.stock.currentStock ?? 0);
+      setEditDescription(details.general.description || '');
+      setEditMinimumStock(details.stock.minimumStock ?? 5);
+      setEditError('');
+    }
+    setIsEditModalOpen(true);
+  };
 
   const handleDeleteProduct = async () => {
     if (!productId) return;
@@ -151,45 +166,46 @@ export default function ProductDetailsPage() {
   };
 
   const handleUpdateProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setEditError('');
-    setIsEditing(true);
-    const token = localStorage.getItem('access_token');
+  e.preventDefault();
+  setEditError('');
+  setIsEditing(true);
+  const token = localStorage.getItem('access_token');
 
-    try {
-      const res = await fetch(`http://localhost:3001/products/${productId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: editName,
-          sku: editSku || null,
-          price: Number(editPrice),
-          description: editDescription || null,
-          minimumStock: Number(editMinimumStock),
-        }),
-      });
+  try {
+    const res = await fetch(`http://localhost:3001/products/${productId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: editName,
+        sku: editSku || null,
+        price: Number(editPrice),
+        quantity: Number(editQuantity),
+        description: editDescription || null,
+        minimumStock: Number(editMinimumStock),
+      }),
+    });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Échec de la modification.');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Échec de la modification.');
 
-      setIsEditModalOpen(false);
-      const refreshed = await fetch(`http://localhost:3001/products/${productId}/details`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      });
-      if (refreshed.ok) {
-        const updated = await refreshed.json();
-        setDetails(updated);
-      }
-    } catch (err: any) {
-      setEditError(err.message);
-    } finally {
-      setIsEditing(false);
+    setIsEditModalOpen(false);
+    const refreshed = await fetch(`http://localhost:3001/products/${productId}/details`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    });
+    if (refreshed.ok) {
+      const updated = await refreshed.json();
+      setDetails(updated);
     }
-  };
+  } catch (err: any) {
+    setEditError(err.message);
+  } finally {
+    setIsEditing(false);
+  }
+};
 
   const handleRechargeProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -269,7 +285,7 @@ export default function ProductDetailsPage() {
             <Button variant="outline" onClick={() => router.push('/products')}>← Retour à l’inventaire</Button>
             {role !== 'CASHIER' && (
               <>
-                <Button onClick={() => setIsEditModalOpen(true)}>Modifier</Button>
+                <Button onClick={handleOpenEditModal}>Modifier</Button>
                 <Button variant="secondary" onClick={() => setIsRechargeModalOpen(true)}>Recharger</Button>
                 <Button variant="destructive" onClick={handleDeleteProduct} disabled={isDeleting}>
                   {isDeleting ? 'Suppression...' : 'Supprimer'}
@@ -422,46 +438,87 @@ export default function ProductDetailsPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleUpdateProduct} className="space-y-4">
-                {editError && <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">{editError}</p>}
+                {editError && (
+                  <p className="text-sm text-red-500 bg-red-50 p-2 rounded text-center">
+                    {editError}
+                  </p>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="editName">Nom</Label>
-                  <Input id="editName" value={editName} onChange={(e) => setEditName(e.target.value)} required />
+                  <Input 
+                    id="editName" 
+                    value={editName} 
+                    onChange={(e) => setEditName(e.target.value)} 
+                    required 
+                  />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="editSku">SKU</Label>
-                  <Input id="editSku" value={editSku} onChange={(e) => setEditSku(e.target.value)} />
+                  <Input 
+                    id="editSku" 
+                    value={editSku} 
+                    onChange={(e) => setEditSku(e.target.value)} 
+                  />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="editPrice">Prix de vente</Label>
-                  <Input id="editPrice" type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} required />
+                  <Input 
+                    id="editPrice" 
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    value={editPrice} 
+                    onChange={(e) => setEditPrice(Number(e.target.value))} 
+                    required 
+                  />
                 </div>
+
                 <div className="space-y-2">
-                  <Label>Quantité en stock</Label>
-                  <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                    <span>{details.stock.currentStock} unité{details.stock.currentStock > 1 ? 's' : ''}</span>
-                    <button
-                      type="button"
-                      onClick={() => { setIsEditModalOpen(false); setIsRechargeModalOpen(true); }}
-                      className="text-xs font-medium text-primary hover:underline"
-                    >
-                      Réapprovisionner
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Le stock ne se modifie pas ici : utilisez « Réapprovisionner » pour garder un historique des mouvements.
-                  </p>
+                  <Label htmlFor="editQuantity">Quantité en stock</Label>
+                  <Input
+                    id="editQuantity"
+                    type="number"
+                    min="0"
+                    value={editQuantity}
+                    onChange={(e) => setEditQuantity(Number(e.target.value))}
+                    required
+                  />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="editMinStock">Seuil minimum d’alerte</Label>
-                  <Input id="editMinStock" type="number" min="0" value={editMinimumStock} onChange={(e) => setEditMinimumStock(Number(e.target.value))} />
+                  <Input 
+                    id="editMinStock" 
+                    type="number" 
+                    min="0" 
+                    value={editMinimumStock} 
+                    onChange={(e) => setEditMinimumStock(Number(e.target.value))} 
+                  />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="editDescription">Description</Label>
-                  <Input id="editDescription" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+                  <Input 
+                    id="editDescription" 
+                    value={editDescription} 
+                    onChange={(e) => setEditDescription(e.target.value)} 
+                  />
                 </div>
+
                 <div className="flex justify-end gap-3 pt-2">
-                  <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>Annuler</Button>
-                  <Button type="submit" disabled={isEditing}>{isEditing ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsEditModalOpen(false)}
+                  >
+                    Annuler
+                  </Button>
+                  <Button type="submit" disabled={isEditing}>
+                    {isEditing ? 'Enregistrement...' : 'Enregistrer'}
+                  </Button>
                 </div>
               </form>
             </CardContent>

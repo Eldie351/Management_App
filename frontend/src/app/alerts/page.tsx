@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingDots } from '@/components/ui/loading_dots';
 import { getStockLabel, getStockStatus } from '@/lib/stock-status';
 
 export default function AlertsPage() {
@@ -12,6 +13,8 @@ export default function AlertsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -22,7 +25,7 @@ export default function AlertsPage() {
       }
 
       try {
-        const res = await fetch('http://localhost:3001/products/user/all', {
+        const res = await fetch(`${API}/products/user/all`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -34,19 +37,32 @@ export default function AlertsPage() {
         const data = await res.json();
         setProducts(data);
       } catch (err: any) {
-        setError(err.message);
+        setError(err.message || 'Une erreur est survenue lors du chargement des alertes.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchProducts();
-  }, [router]);
+  }, [router, API]);
 
   const alertProducts = products.filter((product) => getStockStatus(product) !== 'IN_STOCK');
 
-  if (loading) return <div className="flex h-screen items-center justify-center text-lg">Chargement des alertes...</div>;
-  if (error) return <div className="flex h-screen items-center justify-center text-red-500 font-semibold">{error}</div>;
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-gray-100">
+        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen items-center justify-center font-semibold text-red-500">
+        {error}
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -55,20 +71,26 @@ export default function AlertsPage() {
         <div className="mb-6 flex items-center justify-between border-b pb-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Alertes de stock</h1>
-            <p className="mt-1 text-muted-foreground">Résumé complet des produits à surveiller sur l’ensemble des entrepôts.</p>
+            <p className="mt-1 text-muted-foreground">
+              Résumé complet des produits à surveiller sur l’ensemble des entrepôts.
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-full bg-red-50 px-4 py-2 text-sm font-semibold text-red-700">
               {alertProducts.length} alerte{alertProducts.length > 1 ? 's' : ''}
             </div>
-            <Button variant="outline" onClick={() => router.push('/dashboard')}>← Tableau de bord</Button>
+            <Button variant="outline" onClick={() => router.push('/dashboard')}>
+              ← Tableau de bord
+            </Button>
           </div>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle>Produits à surveiller</CardTitle>
-            <CardDescription>Les statuts sont calculés à partir du stock actuel et du seuil minimum défini sur chaque produit.</CardDescription>
+            <CardDescription>
+              Les statuts sont calculés à partir du stock actuel et du seuil minimum défini sur chaque produit.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {alertProducts.length === 0 ? (
