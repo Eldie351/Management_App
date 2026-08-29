@@ -2,6 +2,7 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { assertStoreAccess, getAllowedStoreIds } from '../../../common/utils/store-access.util';
 
 @Injectable()
 export class SuppliersService {
@@ -24,12 +25,21 @@ export class SuppliersService {
 
   /**
    * GET /suppliers : scopé aux magasins de l'utilisateur connecté.
-   * (Un simple `findMany()` sans filtre exposerait les fournisseurs de
-   * TOUS les utilisateurs, ce qui serait une fuite de données.)
+   *
+   * BUGFIX : la version précédente filtrait uniquement `store: { userId }`
+   * (magasins POSSÉDÉS). Un MANAGER ne possède jamais de magasin — il y est
+   * seulement affecté — donc cet endpoint lui renvoyait toujours une liste
+   * vide, même avec des fournisseurs existants dans son magasin. On utilise
+   * maintenant la même notion d'accès (possédé OU affecté) que partout ailleurs.
    */
-  async findAllByUser(userId: number) {
+  async findAllByUser(user: any) {
+    const allowedStoreIds = getAllowedStoreIds(user);
+    if (allowedStoreIds.length === 0) {
+      return [];
+    }
+
     return this.prisma.supplier.findMany({
-      where: { store: { userId } },
+      where: { storeId: { in: allowedStoreIds } },
       orderBy: { name: 'asc' },
     });
   }
@@ -47,8 +57,11 @@ export class SuppliersService {
     return supplier;
   }
 
-  async update(id: number, dto: UpdateSupplierDto) {
-    await this.findOne(id);
+  async update(id: number, dto: UpdateSupplierDto, user: any) {
+    const supplier = await this.findOne(id);
+    // BUGFIX : aucune vérification n'existait — n'importe quel ADMIN/MANAGER
+    // pouvait modifier le fournisseur d'un autre commerce.
+    assertStoreAccess(user, supplier.storeId, "Vous n'avez pas accès à ce fournisseur.");
 
     return this.prisma.supplier.update({
       where: { id },
@@ -61,8 +74,9 @@ export class SuppliersService {
     });
   }
 
-  async remove(id: number) {
-    await this.findOne(id);
+  async remove(id: number, user: any) {
+    const supplier = await this.findOne(id);
+    assertStoreAccess(user, supplier.storeId, "Vous n'avez pas accès à ce fournisseur.");
 
     const productsCount = await this.prisma.product.count({
       where: { supplierId: id, deletedAt: null },

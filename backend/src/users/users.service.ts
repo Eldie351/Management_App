@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -59,12 +60,24 @@ export class UsersService {
 
     const uniqueStoreIds = Array.from(new Set(data.storeIds || []));
     if (uniqueStoreIds.length > 0) {
+      // BUGFIX (critique) : la version précédente vérifiait seulement que
+      // les magasins EXISTENT quelque part dans la base — pas qu'ils
+      // appartiennent à l'admin qui crée le compte. N'importe quel ADMIN
+      // pouvait donc assigner un employé aux magasins d'un AUTRE commerce,
+      // donnant à cet employé un accès cross-tenant complet.
       const stores = await this.prisma.store.findMany({
         where: { id: { in: uniqueStoreIds } },
       });
 
       if (stores.length !== uniqueStoreIds.length) {
         throw new NotFoundException('Un ou plusieurs magasins spécifiés sont introuvables.');
+      }
+
+      const notOwned = stores.filter((s) => s.userId !== creatorId);
+      if (notOwned.length > 0) {
+        throw new ForbiddenException(
+          "Vous ne pouvez assigner un employé qu'à des magasins que vous possédez.",
+        );
       }
     }
 
@@ -331,38 +344,53 @@ export class UsersService {
     await this.prisma.user.delete({ where: { id } });
   }
 
-  async findAll() {
-    return this.prisma.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        assignedStoreId: true,
-        createdById: true,
-        ownedStores: {
-          select: { id: true, name: true },
-        },
-        storeAssignments: {
-          select: {
-            storeId: true,
-            store: { select: { id: true, name: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
+  /**
+   * BUGFIX (critique) : cette méthode faisait un `findMany()` sans AUCUN
+   * filtre — elle listait les utilisateurs de TOUS les commerces de
+   * l'application. Elle a été retirée ; utiliser `findCreatedByAdmin(adminId)`
+   * qui scope correctement la liste à l'équipe de l'admin appelant.
+   */
 
-  async updateRole(id: number, role: UserRole) {
+  async updateRole(id: number, role: UserRole, adminId: number) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('Utilisateur introuvable.');
+
+    // BUGFIX (critique) : aucune vérification n'existait — n'importe quel
+    // ADMIN pouvait changer le rôle de N'IMPORTE QUEL utilisateur du
+    // système, y compris l'ADMIN d'un autre commerce (ex: le rétrograder
+    // en CASHIER pour prendre le contrôle de son compte).
+    if (user.createdById !== adminId) {
+      throw new ForbiddenException(
+        "Vous ne pouvez modifier que le rôle des membres de votre propre équipe.",
+      );
+    }
 
     return this.prisma.user.update({
       where: { id },
       data: { role },
       select: { id: true, email: true, name: true, role: true },
     });
+  }
+
+  /**
+   * Supprime un membre du personnel, en vérifiant qu'il a bien été créé par
+   * cet administrateur.
+   *
+   * BUGFIX (critique) : l'ancienne route DELETE /users/:id appelait
+   * directement `delete(id)` sans aucune vérification de propriété —
+   * n'importe quel ADMIN pouvait supprimer le compte de n'importe quel
+   * autre utilisateur du système, y compris un ADMIN d'un autre commerce.
+   */
+  async deleteStaffMember(id: number, adminId: number) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+
+    if (user.createdById !== adminId) {
+      throw new ForbiddenException(
+        'Vous ne pouvez supprimer que les membres de votre propre équipe.',
+      );
+    }
+
+    await this.prisma.user.delete({ where: { id } });
   }
 }

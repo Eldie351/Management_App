@@ -7,7 +7,6 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
-  ForbiddenException,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -15,37 +14,13 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { assertStoreAccess } from '../common/utils/store-access.util';
 import { UserRole } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('sales')
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
-
-  /**
-   * Helper privé pour vérifier si l'utilisateur a accès aux ventes d'un magasin donné
-   */
-  private checkStoreAccess(user: any, storeId: number) {
-    if (user?.role === UserRole.ADMIN) return;
-
-    // Extraire tous les IDs de magasins autorisés (assigné, possédés et rattachés)
-    const allowedStoreIds = [
-      user?.assignedStoreId,
-      ...(user?.ownedStores?.map((s: any) => s.id ?? s) ?? []),
-      ...(user?.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) ?? []),
-      ...(user?.stores?.map((s: any) => s.id ?? s) ?? []), // Sécurité si `stores` est présent
-    ]
-      .map(Number)
-      .filter((id) => !isNaN(id) && id > 0);
-
-    const targetStoreId = Number(storeId);
-
-    if (!allowedStoreIds.includes(targetStoreId)) {
-      throw new ForbiddenException(
-        "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
-      );
-    }
-  }
 
   /**
    * Enregistrer une vente et délivrer une facture.
@@ -57,7 +32,14 @@ export class SalesController {
     @CurrentUser() user: any,
     @Body() createSaleDto: CreateSaleDto,
   ) {
-    this.checkStoreAccess(user, createSaleDto.storeId);
+    // BUGFIX : le contrôle d'accès local laissait passer n'importe quel
+    // ADMIN sur n'importe quel magasin (voir SalesService.createSale, qui a
+    // le même bug corrigé côté service pour la double-sécurité).
+    assertStoreAccess(
+      user,
+      createSaleDto.storeId,
+      "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
+    );
     return this.salesService.createSale(user.id, createSaleDto);
   }
 
@@ -71,7 +53,7 @@ export class SalesController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId, "Vous n'avez pas accès aux ventes de ce magasin.");
     return this.salesService.findAllByStore(storeId);
   }
 
@@ -86,7 +68,7 @@ export class SalesController {
     @CurrentUser() user: any,
   ) {
     const sale = await this.salesService.findOne(id);
-    this.checkStoreAccess(user, sale.storeId);
+    assertStoreAccess(user, sale.storeId, "Vous n'avez pas accès à cette facture.");
 
     return sale;
   }
@@ -98,7 +80,7 @@ export class SalesController {
     @CurrentUser() user: any,
   ) {
     const sale = await this.salesService.findOne(id);
-    this.checkStoreAccess(user, sale.storeId);
+    assertStoreAccess(user, sale.storeId, "Vous n'avez pas accès à cette facture.");
 
     await this.salesService.deleteSale(id, user.id);
     return { message: 'Facture supprimée avec succès.' };

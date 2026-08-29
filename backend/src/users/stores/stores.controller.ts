@@ -10,7 +10,6 @@ import {
   UseGuards,
   Query,
   BadRequestException,
-  ForbiddenException,
   DefaultValuePipe,
 } from '@nestjs/common';
 import { StoresService } from './stores.service';
@@ -20,48 +19,22 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { assertStoreAccess } from '../../common/utils/store-access.util';
+
+// Alias tolérés en entrée -> valeur canonique attendue par StoresService.
+const PERIOD_ALIASES: Record<string, 'week' | 'month' | 'year'> = {
+  week: 'week',
+  weekly: 'week',
+  month: 'month',
+  monthly: 'month',
+  year: 'year',
+  yearly: 'year',
+};
 
 @Controller('stores')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class StoresController {
   constructor(private readonly storesService: StoresService) {}
-
-  /**
-   * Extrait tous les IDs de magasins autorisés de façon robuste (owned, assigned et storeAssignments)
-   */
-  private extractAllowedStoreIds(user: any): number[] {
-    if (!user) return [];
-
-    const rawIds = [
-      user.assignedStoreId,
-      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id ?? s) || []),
-      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) || []),
-    ];
-
-    return Array.from(
-      new Set(
-        rawIds
-          .map((id) => Number(id))
-          .filter((id): id is number => !isNaN(id) && id > 0),
-      ),
-    );
-  }
-
-  /**
-   * Helper privé pour vérifier si l'utilisateur a accès à un magasin donné
-   */
-  private checkStoreAccess(user: any, storeId: number) {
-    if (user?.role === UserRole.ADMIN) return;
-
-    const allowedStoreIds = this.extractAllowedStoreIds(user);
-    const targetStoreId = Number(storeId);
-
-    if (!allowedStoreIds.includes(targetStoreId)) {
-      throw new ForbiddenException(
-        "Vous n'avez pas la permission d'accéder à ce magasin.",
-      );
-    }
-  }
 
   /**
    * Créer un magasin : ADMIN uniquement.
@@ -82,8 +55,9 @@ export class StoresController {
   }
 
   /**
-   * Liste des magasins accessibles selon le rôle.
-   * On passe désormais l'objet user complet.
+   * Liste des magasins accessibles selon le rôle (déjà scopée par
+   * StoresService.findAllByUser : magasins possédés pour un ADMIN, magasins
+   * assignés pour MANAGER/CASHIER).
    */
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
@@ -93,6 +67,8 @@ export class StoresController {
 
   /**
    * Consulter un magasin spécifique par son ID.
+   * BUGFIX : un ADMIN doit posséder ce magasin, pas seulement être ADMIN
+   * de N'IMPORTE QUEL commerce (assertStoreAccess ne fait plus de passe-droit).
    */
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
@@ -100,19 +76,23 @@ export class StoresController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, id);
+    assertStoreAccess(user, id, "Vous n'avez pas la permission d'accéder à ce magasin.");
     return this.storesService.findOne(id);
   }
 
   /**
-   * Modifier les paramètres d'un magasin : ADMIN uniquement.
+   * Modifier les paramètres d'un magasin : ADMIN, et uniquement SON magasin.
+   * BUGFIX : avant, n'importe quel ADMIN pouvait modifier le magasin de
+   * n'importe quel autre commerce (aucune vérification de propriété).
    */
   @Patch(':id')
   @Roles(UserRole.ADMIN)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { name?: string; location?: string; phone?: string; currency?: Currency },
+    @CurrentUser() user: any,
   ) {
+    assertStoreAccess(user, id, "Vous n'avez pas la permission de modifier ce magasin.");
     return this.storesService.updateStore(id, {
       name: body.name,
       location: body.location,
@@ -122,11 +102,14 @@ export class StoresController {
   }
 
   /**
-   * Supprimer un magasin : ADMIN uniquement.
+   * Supprimer un magasin : ADMIN, et uniquement SON magasin.
+   * BUGFIX : même faille que ci-dessus — n'importe quel ADMIN pouvait
+   * supprimer le magasin (et donc toutes ses données) d'un autre commerce.
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    assertStoreAccess(user, id, "Vous n'avez pas la permission de supprimer ce magasin.");
     return this.storesService.deleteStore(id);
   }
 
@@ -139,12 +122,16 @@ export class StoresController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, id);
+    assertStoreAccess(user, id);
     return this.storesService.getStoreStats(id);
   }
 
   /**
    * Détail des ventes par période : ADMIN & MANAGER.
+   * BUGFIX : la validation acceptait 'weekly'/'monthly'/'yearly' alors que
+   * StoresService.getSalesForPeriod n'a jamais géré que 'week'/'month'/'year'
+   * (et 'day'/'today') — cet endpoint renvoyait donc TOUJOURS une erreur 400,
+   * quelle que soit la valeur envoyée. On normalise maintenant les deux formes.
    */
   @Get(':id/stats/period-sales')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
@@ -154,14 +141,15 @@ export class StoresController {
     @Query('index', new DefaultValuePipe(0), ParseIntPipe) index: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, id);
+    assertStoreAccess(user, id);
 
-    if (period !== 'weekly' && period !== 'monthly' && period !== 'yearly') {
+    const normalizedPeriod = PERIOD_ALIASES[(period || '').toLowerCase()];
+    if (!normalizedPeriod) {
       throw new BadRequestException(
-        "Le paramètre 'period' doit être 'weekly', 'monthly' ou 'yearly'.",
+        "Le paramètre 'period' doit être 'week', 'month' ou 'year' (les formes 'weekly'/'monthly'/'yearly' sont aussi acceptées).",
       );
     }
 
-    return this.storesService.getSalesForPeriod(id, period, index);
+    return this.storesService.getSalesForPeriod(id, normalizedPeriod, index);
   }
 }

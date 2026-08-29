@@ -15,7 +15,10 @@ export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 
   @Get()
-  async findMine(@Request() req) {
-    return this.auditLogService.findAllByUser(req.user.id);
+  async findAll(@Request() req) {
+    // BUGFIX (fonctionnel) : ne renvoyait avant que les actions de l'admin
+    // lui-même. La spec demande "voir tous les logs" du commerce, donc on
+    // inclut aussi les actions de l'équipe créée par cet admin.
+    return this.auditLogService.findAllForAdmin(req.user.id);
   }
 }

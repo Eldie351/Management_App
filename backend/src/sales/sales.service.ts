@@ -1,13 +1,13 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
-import { MovementType, UserRole } from '@prisma/client';
+import { MovementType } from '@prisma/client';
+import { assertStoreAccess } from '../common/utils/store-access.util';
 
 @Injectable()
 export class SalesService {
@@ -37,20 +37,15 @@ export class SalesService {
       throw new NotFoundException('Utilisateur introuvable.');
     }
 
-    // Sécurité : Vérification dynamique des magasins autorisés si non-ADMIN
-    if (currentUser.role !== UserRole.ADMIN) {
-      const allowedStoreIds = [
-        currentUser.assignedStoreId,
-        ...(currentUser.ownedStores?.map((s) => s.id) ?? []),
-        ...(currentUser.storeAssignments?.map((sa) => sa.storeId) ?? []),
-      ].filter((id): id is number => Boolean(id));
-
-      if (!allowedStoreIds.includes(dto.storeId)) {
-        throw new ForbiddenException(
-          "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
-        );
-      }
-    }
+    // BUGFIX : cette vérification était sautée pour role === ADMIN,
+    // permettant à n'importe quel ADMIN d'enregistrer une vente (donc de
+    // décrémenter du stock) dans le magasin d'un AUTRE commerce. Elle
+    // s'applique maintenant à tous les rôles, ADMIN inclus.
+    assertStoreAccess(
+      currentUser,
+      dto.storeId,
+      "Vous n'êtes pas autorisé à effectuer une vente dans ce magasin.",
+    );
 
     // Transaction atomique : tout réussit ou tout est annulé
     return await this.prisma.$transaction(async (tx) => {

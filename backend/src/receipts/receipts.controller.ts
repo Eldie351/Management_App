@@ -1,9 +1,10 @@
-import { Controller, Get, Param, Query, ParseIntPipe, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { ReceiptsService } from './receipts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { assertStoreAccess, getAllowedStoreIds } from '../common/utils/store-access.util';
 import { UserRole } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -19,11 +20,19 @@ export class ReceiptsController {
     @Query('end') end: string | undefined,
     @CurrentUser() user: any,
   ) {
-    // Un CASHIER/MANAGER est cantonné à son magasin assigné, quel que soit
-    // le storeId passé en query. Un ADMIN peut filtrer sur n'importe quel magasin.
-    const resolvedStoreId =
-      user.role !== UserRole.ADMIN ? (user.assignedStoreId ?? undefined) : storeId ? Number(storeId) : undefined;
-    return this.receiptsService.findAll(resolvedStoreId, start, end);
+    // BUGFIX (critique) : l'ancienne version laissait un ADMIN filtrer sur
+    // N'IMPORTE QUEL storeId, et surtout — sans storeId du tout — appelait
+    // `receiptsService.findAll(undefined, ...)`, ce qui renvoyait TOUS les
+    // reçus de TOUS les commerces de l'application. On restreint maintenant
+    // toujours aux magasins réellement possédés/assignés de l'utilisateur.
+    const allowedStoreIds = getAllowedStoreIds(user);
+
+    if (storeId) {
+      assertStoreAccess(user, storeId, "Vous n'avez pas accès aux reçus de ce magasin.");
+      return this.receiptsService.findAll(Number(storeId), start, end);
+    }
+
+    return this.receiptsService.findAllForStores(allowedStoreIds, start, end);
   }
 
   @Get('store/:storeId')
@@ -33,18 +42,17 @@ export class ReceiptsController {
     @Query('end') end: string | undefined,
     @CurrentUser() user: any,
   ) {
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== storeId) {
-      throw new ForbiddenException("Vous n'avez pas accès aux reçus de ce magasin.");
-    }
+    // BUGFIX : ne vérifiait que `user.assignedStoreId`, ignorant les
+    // magasins secondaires (`storeAssignments`) et laissant passer tout
+    // ADMIN sans vérifier qu'il possède bien ce magasin.
+    assertStoreAccess(user, storeId, "Vous n'avez pas accès aux reçus de ce magasin.");
     return this.receiptsService.findAll(storeId, start, end);
   }
 
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
     const receipt = await this.receiptsService.findOne(id);
-    if (user.role !== UserRole.ADMIN && user.assignedStoreId !== receipt.storeId) {
-      throw new ForbiddenException("Vous n'avez pas accès à ce reçu.");
-    }
+    assertStoreAccess(user, receipt.storeId, "Vous n'avez pas accès à ce reçu.");
     return receipt;
   }
 }

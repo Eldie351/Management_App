@@ -41,12 +41,18 @@ export class UsersController {
   // --- Gestion du personnel par l'ADMIN -----------------------------------
 
   /**
-   * Lister tous les utilisateurs (réservé aux ADMINs).
+   * Lister le personnel créé par l'administrateur connecté.
+   *
+   * BUGFIX (critique) : cet endpoint appelait auparavant un `findAll()` sans
+   * filtre, qui renvoyait les utilisateurs de TOUS les commerces de
+   * l'application (fuite de données entre clients). Il est maintenant
+   * strictement scopé à l'équipe de l'admin connecté — comme /users/staff,
+   * qu'il duplique désormais volontairement pour compatibilité.
    */
   @Get()
   @Roles(UserRole.ADMIN)
-  async findAll() {
-    return this.usersService.findAll();
+  async findAll(@CurrentUser('id') adminId: number) {
+    return this.usersService.findCreatedByAdmin(adminId);
   }
 
   /**
@@ -72,6 +78,8 @@ export class UsersController {
 
   /**
    * Modifier le rôle d'un utilisateur.
+   * BUGFIX : la vérification d'appartenance à l'équipe de l'admin est
+   * désormais faite dans UsersService.updateRole (createdById === adminId).
    */
   @Patch(':id/role')
   @Roles(UserRole.ADMIN)
@@ -83,11 +91,15 @@ export class UsersController {
     if (currentUserId === id) {
       throw new ForbiddenException('Tu ne peux pas modifier ton propre rôle.');
     }
-    return this.usersService.updateRole(id, dto.role);
+    return this.usersService.updateRole(id, dto.role, currentUserId);
   }
 
   /**
    * Supprimer un compte utilisateur.
+   * BUGFIX : délègue maintenant à `deleteStaffMember`, qui vérifie que la
+   * cible a bien été créée par l'admin appelant avant de la supprimer
+   * (auparavant, n'importe quel ADMIN pouvait supprimer n'importe quel
+   * compte du système, y compris celui d'un autre commerce).
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
@@ -100,7 +112,7 @@ export class UsersController {
         'Tu ne peux pas supprimer ton propre compte.',
       );
     }
-    await this.usersService.delete(id);
+    await this.usersService.deleteStaffMember(id, currentUserId);
     return { message: 'Utilisateur supprimé avec succès.' };
   }
 }

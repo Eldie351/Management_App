@@ -1,6 +1,6 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { UserRole } from '@prisma/client';
+import { buildStoreIdWhere } from '../common/utils/store-access.util';
 
 type Period = 'week' | 'month' | 'year';
 
@@ -21,24 +21,16 @@ export class ReportsService {
   }
 
   /**
-   * Extrait tous les IDs de magasins autorisés directement depuis l'objet user JWT.
+   * Construit la clause `where` sécurisée pour Prisma.
+   *
+   * BUGFIX : l'ancienne implémentation renvoyait `{}` (= AUCUN filtre = les
+   * ventes/produits de TOUS les commerces confondus) pour un ADMIN sans
+   * storeId précisé, et ne vérifiait même pas que le storeId demandé lui
+   * appartenait. Elle délègue maintenant à `buildStoreIdWhere`, qui applique
+   * la même règle stricte à tous les rôles.
    */
-  private extractAllowedStoreIds(user: any): number[] {
-    if (!user) return [];
-
-    const rawIds = [
-      user.assignedStoreId,
-      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id ?? s) || []),
-      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) || []),
-    ];
-
-    return Array.from(
-      new Set(
-        rawIds
-          .map((id) => Number(id))
-          .filter((id): id is number => !isNaN(id) && id > 0),
-      ),
-    );
+  private getStoreFilter(user: any, requestedStoreId?: number): { storeId?: any } {
+    return buildStoreIdWhere(user, this.parseId(requestedStoreId));
   }
 
   /**
@@ -57,39 +49,6 @@ export class ReportsService {
     }
 
     return { start: validStart, end: validEnd };
-  }
-
-  /**
-   * Construit la clause `where` sécurisée pour Prisma.
-   * Vérifie que le magasin demandé appartient bien aux autorisations de l'utilisateur.
-   */
-  private async getStoreFilter(user: any, requestedStoreId?: number): Promise<{ storeId?: any }> {
-    const parsedStoreId = this.parseId(requestedStoreId);
-
-    // 1. Si l'utilisateur est ADMIN
-    if (user?.role === UserRole.ADMIN) {
-      return parsedStoreId ? { storeId: parsedStoreId } : {};
-    }
-
-    // 2. Utilisateurs non-ADMIN (MANAGER, CASHIER, USER, etc.)
-    const allowedStoreIds = this.extractAllowedStoreIds(user);
-
-    // SÉCURITÉ : Aucun magasin assigné/possédé => Bloquer immédiatement
-    if (allowedStoreIds.length === 0) {
-      return { storeId: -1 };
-    }
-
-    // Si un magasin spécifique est demandé
-    if (parsedStoreId !== undefined) {
-      if (allowedStoreIds.includes(parsedStoreId)) {
-        return { storeId: parsedStoreId };
-      }
-      // Tentative d'accès à un magasin non autorisé
-      return { storeId: -1 };
-    }
-
-    // Sinon, restreindre l'ensemble du rapport aux magasins de l'utilisateur
-    return { storeId: { in: allowedStoreIds } };
   }
 
   async getKpis(startISO: string, endISO: string, storeId?: number, user?: any) {

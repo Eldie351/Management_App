@@ -1,0 +1,33 @@
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+
+@Injectable()
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private pool: Pool;
+
+  constructor() {
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      // Le pool doit pouvoir servir plusieurs requêtes en parallèle (KPIs, série
+      // de ventes et perf. magasins sont interrogés en même temps par la page
+      // Rapports). Une seule connexion forcerait des requêtes concurrentes à se
+      // marcher dessus sur le même client pg.
+      max: 10,
+    });
+    const adapter = new PrismaPg(pool);
+
+    super({ adapter });
+    this.pool = pool;
+  }
+
+  async onModuleInit() {
+    await this.$connect();
+  }
+
+  async onModuleDestroy() {
+    await this.$disconnect();
+    await this.pool.end();
+  }
+}

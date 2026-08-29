@@ -35,4 +35,30 @@ export class AuditLogService {
       take,
     });
   }
+
+  /**
+   * Journal complet d'un commerce : actions de l'ADMIN lui-même + actions de
+   * tout le personnel qu'il a créé (MANAGER/CASHIER).
+   *
+   * BUGFIX (fonctionnel, pas de sécurité) : l'endpoint GET /audit-logs
+   * n'appelait avant que `findAllByUser(adminId)`, qui ne renvoyait QUE les
+   * actions effectuées par l'admin lui-même — jamais celles de son équipe.
+   * Or la spec des permissions ADMIN demande explicitement de "voir tous les
+   * logs" du commerce. On reste bien scopé à l'équipe de CET admin (pas de
+   * fuite cross-tenant) via `createdById`.
+   */
+  async findAllForAdmin(adminId: number, take = 200) {
+    const staff = await this.prisma.user.findMany({
+      where: { createdById: adminId },
+      select: { id: true },
+    });
+
+    const relevantUserIds = [adminId, ...staff.map((s) => s.id)];
+
+    return this.prisma.auditLog.findMany({
+      where: { userId: { in: relevantUserIds } },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+  }
 }

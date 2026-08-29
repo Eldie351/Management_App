@@ -2,6 +2,7 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { assertStoreAccess } from '../../../common/utils/store-access.util';
 
 @Injectable()
 export class CategoriesService {
@@ -33,8 +34,11 @@ export class CategoriesService {
     return category;
   }
 
-  async update(id: number, dto: UpdateCategoryDto) {
-    await this.findOne(id); // 404 si absente
+  async update(id: number, dto: UpdateCategoryDto, user: any) {
+    const category = await this.findOne(id); // 404 si absente
+    // BUGFIX : aucune vérification n'existait — n'importe quel ADMIN/MANAGER
+    // pouvait modifier la catégorie d'un autre commerce.
+    assertStoreAccess(user, category.storeId, "Vous n'avez pas accès à cette catégorie.");
 
     return this.prisma.category.update({
       where: { id },
@@ -45,8 +49,9 @@ export class CategoriesService {
     });
   }
 
-  async remove(id: number) {
-    await this.findOne(id); // 404 si absente
+  async remove(id: number, user: any) {
+    const category = await this.findOne(id); // 404 si absente
+    assertStoreAccess(user, category.storeId, "Vous n'avez pas accès à cette catégorie.");
 
     // Une catégorie liée à des produits ne peut pas être supprimée : on
     // détacherait silencieusement des produits existants sinon, ce qui

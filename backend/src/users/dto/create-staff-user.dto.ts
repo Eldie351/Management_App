@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsString,
   MinLength,
+  Matches,
   IsInt,
 } from 'class-validator';
 import { UserRole } from '@prisma/client';
@@ -18,10 +19,18 @@ export class CreateStaffUserDto {
   @IsNotEmpty({ message: 'Le nom est requis.' })
   name: string;
 
+  // BUGFIX (intégrité des comptes) : n'exigeait avant que 6 caractères, une
+  // politique plus faible que celle imposée à l'inscription (RegisterDto).
+  // Un employé créé par un admin pouvait donc se voir attribuer un mot de
+  // passe nettement moins robuste qu'un compte auto-inscrit.
   @IsString({ message: 'Le mot de passe est requis.' })
   @IsNotEmpty({ message: 'Le mot de passe est requis.' })
-  @MinLength(6, {
-    message: 'Le mot de passe doit contenir au moins 6 caractères.',
+  @MinLength(8, {
+    message: 'Le mot de passe doit contenir au moins 8 caractères.',
+  })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&_#\-]).{8,}$/, {
+    message:
+      'Le mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial (@$!%*?&_#-)',
   })
   password: string;
 

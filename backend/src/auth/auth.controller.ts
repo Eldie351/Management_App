@@ -43,7 +43,12 @@ export class AuthController {
 
   @Delete('compte')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN)
+  // BUGFIX : le décorateur autorisait aussi MANAGER, alors que
+  // AuthService.deleteAccount rejette systématiquement tout rôle différent
+  // d'ADMIN ("Seuls les administrateurs peuvent supprimer leur compte").
+  // Un MANAGER recevait donc toujours une 403 après avoir passé le guard —
+  // trompeur. On aligne le guard sur la règle réellement appliquée.
   async deleteAccount(@Request() req) {
     const userId = req.user.id;
     return this.authService.deleteAccount(userId);

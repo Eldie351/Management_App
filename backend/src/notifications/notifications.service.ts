@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { assertStoreAccess } from '../common/utils/store-access.util';
 
 @Injectable()
 export class NotificationsService {
@@ -31,9 +32,13 @@ export class NotificationsService {
     });
   }
 
-  async markAsRead(id: number) {
+  async markAsRead(id: number, user: any) {
     const notification = await this.prisma.notification.findUnique({ where: { id } });
     if (!notification) throw new NotFoundException('Notification introuvable.');
+
+    // BUGFIX : aucune vérification n'existait — n'importe quel ADMIN/MANAGER
+    // pouvait marquer comme lue une notification d'un autre commerce.
+    assertStoreAccess(user, notification.storeId, "Vous n'avez pas accès à cette notification.");
 
     return this.prisma.notification.update({
       where: { id },

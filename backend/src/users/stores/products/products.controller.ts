@@ -10,7 +10,6 @@ import {
   UseGuards,
   Query,
   Res,
-  ForbiddenException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { UserRole } from '@prisma/client';
@@ -18,6 +17,7 @@ import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { assertStoreAccess } from '../../../common/utils/store-access.util';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -31,25 +31,6 @@ export class ProductsController {
     private readonly productsExportService: ProductsExportService,
   ) {}
 
-  /**
-   * Helper privé pour vérifier l'accès d'un utilisateur à un magasin
-   */
-  private checkStoreAccess(user: any, storeId: number) {
-    if (user?.role === UserRole.ADMIN) return;
-
-    const allowedStoreIds = [
-      user?.assignedStoreId,
-      ...(user?.ownedStores?.map((s: any) => s.id ?? s) ?? []),
-      ...(user?.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) ?? []),
-    ].filter((id): id is number => Boolean(id));
-
-    if (!allowedStoreIds.includes(storeId)) {
-      throw new ForbiddenException(
-        "Vous n'avez pas accès aux données de ce magasin.",
-      );
-    }
-  }
-
   // --- Créer / modifier / supprimer -----------------------------------
 
   @Post()
@@ -58,7 +39,7 @@ export class ProductsController {
     @Body() createProductDto: CreateProductDto,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, createProductDto.storeId);
+    assertStoreAccess(user, createProductDto.storeId);
     return this.productsService.createProduct(createProductDto, user.id);
   }
 
@@ -69,19 +50,18 @@ export class ProductsController {
     @Body() updateProductDto: UpdateProductDto,
     @CurrentUser() user: any,
   ) {
-    if (updateProductDto.storeId) {
-      this.checkStoreAccess(user, updateProductDto.storeId);
-    }
-    return this.productsService.updateProduct(id, updateProductDto, user.id);
+    // La vérification définitive (produit existant + éventuel nouveau
+    // magasin) est faite dans le service, qui connaît le storeId réel du
+    // produit — voir BUGFIX dans ProductsService.updateProduct.
+    return this.productsService.updateProduct(id, updateProductDto, user);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async remove(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser('id') userId: number,
-  ) {
-    return this.productsService.deleteProduct(id, userId);
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    // BUGFIX : ne passait avant que l'id utilisateur, sans vérification
+    // d'appartenance au magasin (voir ProductsService.deleteProduct).
+    return this.productsService.deleteProduct(id, user);
   }
 
   // --- Consultation (ouverte aux 3 rôles pour encaisser) --------------
@@ -94,7 +74,7 @@ export class ProductsController {
   ) {
     const targetStoreId = storeId ? parseInt(storeId, 10) : undefined;
     if (targetStoreId) {
-      this.checkStoreAccess(user, targetStoreId);
+      assertStoreAccess(user, targetStoreId);
     }
 
     return this.productsService.findLowStock(user, targetStoreId);
@@ -108,7 +88,7 @@ export class ProductsController {
   ) {
     const targetStoreId = storeId ? parseInt(storeId, 10) : undefined;
     if (targetStoreId) {
-      this.checkStoreAccess(user, targetStoreId);
+      assertStoreAccess(user, targetStoreId);
     }
 
     return this.productsService.findOutOfStock(user, targetStoreId);
@@ -120,14 +100,17 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId);
     return this.productsService.findLowStockProductsByStore(storeId);
   }
 
   @Get(':id/details')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  async getDetails(@Param('id', ParseIntPipe) id: number) {
-    return this.productsService.getProductDetails(id);
+  async getDetails(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    // BUGFIX : aucune vérification n'existait avant (voir
+    // ProductsService.getProductDetails) — n'importe qui pouvait consulter
+    // le détail d'un produit de n'importe quel commerce.
+    return this.productsService.getProductDetails(id, user);
   }
 
   @Get('store/:storeId')
@@ -136,7 +119,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId);
     return this.productsService.findAllByStore(storeId);
   }
 
@@ -146,7 +129,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId);
     return this.productsService.findSalesByStore(storeId, user.id, user.role);
   }
 
@@ -157,6 +140,8 @@ export class ProductsController {
     @Body('quantity', ParseIntPipe) quantity: number,
     @CurrentUser() user: any,
   ) {
+    // Le contrôle d'accès au magasin du produit est fait dans le service
+    // (assertStoreAccess sur product.storeId) — voir BUGFIX correspondant.
     return this.productsService.sellProduct(id, quantity, user);
   }
 
@@ -168,7 +153,7 @@ export class ProductsController {
   ) {
     const targetStoreId = storeId ? parseInt(storeId, 10) : undefined;
     if (targetStoreId) {
-      this.checkStoreAccess(user, targetStoreId);
+      assertStoreAccess(user, targetStoreId);
     }
 
     return this.productsService.findAllByUser(user, targetStoreId);
@@ -182,7 +167,7 @@ export class ProductsController {
     @Param('storeId', ParseIntPipe) storeId: number,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId);
     return this.productsService.getStockMovements(storeId);
   }
 
@@ -191,9 +176,12 @@ export class ProductsController {
   async rechargeStock(
     @Param('id', ParseIntPipe) id: number,
     @Body('quantity', ParseIntPipe) quantity: number,
-    @CurrentUser('id') userId: number,
+    @CurrentUser() user: any,
   ) {
-    return this.productsService.rechargeProduct(id, quantity, userId);
+    // BUGFIX : passait avant seulement l'id utilisateur ; aucune
+    // vérification d'accès au magasin n'était faite nulle part (voir
+    // ProductsService.rechargeProduct, faille critique corrigée).
+    return this.productsService.rechargeProduct(id, quantity, user);
   }
 
   @Patch(':id/adjust')
@@ -202,9 +190,10 @@ export class ProductsController {
     @Param('id', ParseIntPipe) id: number,
     @Body('delta', ParseIntPipe) delta: number,
     @Body('note') note: string,
-    @CurrentUser('id') userId: number,
+    @CurrentUser() user: any,
   ) {
-    return this.productsService.adjustProduct(id, delta, userId, note);
+    // BUGFIX : idem rechargeStock (voir ProductsService.adjustProduct).
+    return this.productsService.adjustProduct(id, delta, user, note);
   }
 
   // --- Export PDF / Excel --------------------------------------------------
@@ -216,7 +205,7 @@ export class ProductsController {
     @Res() res: Response,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId);
 
     const products = await this.productsService.findAllByStore(storeId);
     const buffer = await this.productsExportService.generateProductsExcel(products);
@@ -236,7 +225,7 @@ export class ProductsController {
     @Res() res: Response,
     @CurrentUser() user: any,
   ) {
-    this.checkStoreAccess(user, storeId);
+    assertStoreAccess(user, storeId);
 
     const products = await this.productsService.findAllByStore(storeId);
     const buffer = await this.productsExportService.generateProductsPdf(products);

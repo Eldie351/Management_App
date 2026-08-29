@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -188,7 +188,12 @@ export class ExchangeRateService {
     });
 
     if (!exchangeRate) {
-      throw new Error(`Exchange rate not found for ${fromCurrency} to ${toCurrency}`);
+      // BUGFIX : une `Error` brute n'est pas interceptée par les filtres
+      // d'exception NestJS et remonte comme une 500 générique. On lève une
+      // NotFoundException pour renvoyer une 404 propre et exploitable.
+      throw new NotFoundException(
+        `Taux de change introuvable pour ${fromCurrency} vers ${toCurrency}.`,
+      );
     }
 
     const rate = Number(exchangeRate.rate);

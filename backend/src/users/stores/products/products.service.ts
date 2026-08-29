@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -10,6 +9,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { MovementType, PaymentMethod, UserRole } from '@prisma/client';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { AuditLogService } from '../../../audit-log/audit-log.service';
+import { assertStoreAccess, buildStoreWhere } from '../../../common/utils/store-access.util';
 
 const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
   CREATION: 'Création',
@@ -47,50 +47,14 @@ export class ProductsService {
   ) {}
 
   /**
-   * Extrait tous les IDs de magasins autorisés directement depuis l'utilisateur JWT.
-   */
-  private extractAllowedStoreIds(user: any): number[] {
-    if (!user) return [];
-    
-    const rawIds = [
-      user.assignedStoreId,
-      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id) || []),
-      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id) || []),
-    ];
-
-    return Array.from(new Set(rawIds.filter((id): id is number => Boolean(id))));
-  }
-
-  /**
-   * Construit la condition de filtrage sécurisée par magasin.
+   * BUGFIX : cette méthode retournait `{}` (= AUCUN filtre = tous les
+   * magasins de tous les commerces) pour un ADMIN sans storeId précisé, et
+   * ne vérifiait même pas que le storeId demandé lui appartenait. Elle
+   * délègue maintenant à `buildStoreWhere`, qui applique la même règle à
+   * tous les rôles : accès uniquement aux magasins possédés/assignés.
    */
   private getStoreFilterForUser(user: any, requestedStoreId?: number): any {
-    const parsedStoreId = requestedStoreId ? Number(requestedStoreId) : undefined;
-
-    // 1. Si l'utilisateur est ADMIN
-    if (user?.role === UserRole.ADMIN) {
-      return parsedStoreId ? { id: parsedStoreId } : {};
-    }
-
-    // 2. Si l'utilisateur n'est pas ADMIN
-    const allowedStoreIds = this.extractAllowedStoreIds(user);
-
-    // SÉCURITÉ : Aucun magasin disponible => bloque complètement l'accès
-    if (allowedStoreIds.length === 0) {
-      return { id: -1 };
-    }
-
-    // Si un magasin précis est demandé, vérifier qu'il y a droit
-    if (parsedStoreId) {
-      if (allowedStoreIds.includes(parsedStoreId)) {
-        return { id: parsedStoreId };
-      }
-      // Accès refusé à ce magasin
-      return { id: -1 };
-    }
-
-    // Sinon restreindre à la liste de ses magasins autorisés
-    return { id: { in: allowedStoreIds } };
+    return buildStoreWhere(user, requestedStoreId);
   }
 
   /**
@@ -250,15 +214,27 @@ export class ProductsService {
     });
   }
 
-  async updateProduct(id: number, dto: UpdateProductDto & { safetyStock?: number; optimalStock?: number; quantity?: number }, userId: number) {
+  async updateProduct(id: number, dto: UpdateProductDto & { safetyStock?: number; optimalStock?: number; quantity?: number }, user: any) {
+    const userId = user?.id ?? user;
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
+
+    // BUGFIX : rien ne vérifiait que le produit modifié appartenait à un
+    // magasin de l'utilisateur (le contrôle n'existait que si `storeId`
+    // était explicitement fourni dans le body, ce qui n'est pas le cas pour
+    // une simple modification de prix/nom/stock). N'importe quel ADMIN
+    // pouvait donc modifier un produit d'un autre commerce.
+    assertStoreAccess(user, product.storeId, "Vous n'avez pas accès à ce produit.");
 
     if (dto.storeId && dto.storeId !== product.storeId) {
       const storeExists = await this.prisma.store.findUnique({
         where: { id: dto.storeId },
       });
       if (!storeExists) throw new NotFoundException('Le nouveau magasin spécifié est introuvable.');
+      // BUGFIX : vérifie aussi que le magasin DE DESTINATION appartient à
+      // l'utilisateur (sinon on pourrait "déplacer" un produit vers le
+      // magasin d'un autre commerce).
+      assertStoreAccess(user, dto.storeId, "Vous n'avez pas accès au magasin de destination.");
     }
 
     if (dto.categoryId) {
@@ -375,9 +351,14 @@ export class ProductsService {
     });
   }
 
-  async deleteProduct(id: number, userId: number) {
+  async deleteProduct(id: number, user: any) {
+    const userId = user?.id ?? user;
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Produit introuvable.');
+
+    // BUGFIX : aucune vérification n'existait ici — n'importe quel ADMIN
+    // pouvait supprimer (archiver) le produit de n'importe quel commerce.
+    assertStoreAccess(user, product.storeId, "Vous n'avez pas accès à ce produit.");
 
     await this.prisma.product.update({
       where: { id },
@@ -405,15 +386,15 @@ export class ProductsService {
       const product = await tx.product.findUnique({ where: { id } });
       if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
 
-      if (user.role !== UserRole.ADMIN) {
-        const allowedStoreIds = this.extractAllowedStoreIds(user);
-
-        if (!allowedStoreIds.includes(product.storeId)) {
-          throw new ForbiddenException(
-            "Vous ne pouvez effectuer de vente que dans l'un de vos magasins autorisés.",
-          );
-        }
-      }
+      // BUGFIX : le contrôle d'accès s'appliquait uniquement aux non-ADMIN,
+      // permettant à n'importe quel ADMIN de vendre des produits appartenant
+      // à un magasin d'un AUTRE commerce. Il s'applique maintenant à tous,
+      // ADMIN inclus (ADMIN n'a accès qu'à SES propres magasins).
+      assertStoreAccess(
+        user,
+        product.storeId,
+        "Vous ne pouvez effectuer de vente que dans l'un de vos magasins autorisés.",
+      );
 
       if (product.quantity < quantityToSell) {
         throw new BadRequestException(
@@ -421,7 +402,11 @@ export class ProductsService {
         );
       }
 
-      const totalAmount = product.sellingPrice * quantityToSell;
+      // BUGFIX : `product.sellingPrice` est un Decimal Prisma ; le multiplier
+      // directement par un number peut produire NaN/une chaîne concaténée
+      // selon le runtime. On le convertit explicitement, comme fait ailleurs
+      // dans le code (stores.service, sales.service, reports.service).
+      const totalAmount = Number(product.sellingPrice) * quantityToSell;
 
       const updatedProduct = await tx.product.update({
         where: { id },
@@ -490,7 +475,8 @@ export class ProductsService {
     });
   }
 
-  async rechargeProduct(id: number, quantityToAdd: number, userId: number) {
+  async rechargeProduct(id: number, quantityToAdd: number, user: any) {
+    const userId = user?.id ?? user;
     if (quantityToAdd <= 0) {
       throw new BadRequestException('La quantité rechargée doit être supérieure à 0.');
     }
@@ -498,6 +484,13 @@ export class ProductsService {
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { id } });
       if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
+
+      // BUGFIX CRITIQUE : cette méthode ne faisait AUCUNE vérification
+      // d'accès, y compris pour les non-ADMIN. N'importe quel MANAGER (ou
+      // ADMIN) authentifié pouvait réapprovisionner le stock d'un produit
+      // appartenant à un magasin d'un AUTRE commerce, juste en connaissant
+      // l'ID du produit.
+      assertStoreAccess(user, product.storeId, "Vous n'avez pas accès à ce produit.");
 
       const updatedProduct = await tx.product.update({
         where: { id },
@@ -529,7 +522,8 @@ export class ProductsService {
     });
   }
 
-  async adjustProduct(id: number, delta: number, userId: number, note?: string) {
+  async adjustProduct(id: number, delta: number, user: any, note?: string) {
+    const userId = user?.id ?? user;
     if (delta === 0) {
       throw new BadRequestException('La correction ne peut pas être nulle.');
     }
@@ -537,6 +531,11 @@ export class ProductsService {
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { id } });
       if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
+
+      // BUGFIX CRITIQUE : même faille que rechargeProduct — aucun contrôle
+      // d'accès n'existait, permettant à n'importe quel utilisateur
+      // authentifié d'ajuster le stock d'un produit d'un autre commerce.
+      assertStoreAccess(user, product.storeId, "Vous n'avez pas accès à ce produit.");
 
       const newQuantity = product.quantity + delta;
       if (newQuantity < 0) {
@@ -619,7 +618,7 @@ export class ProductsService {
     });
   }
 
-  async getProductDetails(id: number) {
+  async getProductDetails(id: number, user: any) {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: {
@@ -629,6 +628,11 @@ export class ProductsService {
       },
     });
     if (!product || product.deletedAt) throw new NotFoundException('Produit introuvable.');
+
+    // BUGFIX : cet endpoint n'avait AUCUNE vérification d'accès — n'importe
+    // quel utilisateur authentifié pouvait consulter le détail d'un produit
+    // de n'importe quel commerce en devinant son ID.
+    assertStoreAccess(user, product.storeId, "Vous n'avez pas accès à ce produit.");
 
     const salesItemAgg = await this.prisma.saleItem.aggregate({
       where: { productId: id },
@@ -674,7 +678,7 @@ export class ProductsService {
         minimumStock: product.minimumStock,
         safetyStock: product.safetyStock,
         optimalStock: product.optimalStock ?? product.minimumStock * 3,
-        stockValue: product.quantity * product.sellingPrice,
+        stockValue: product.quantity * Number(product.sellingPrice),
         status: this.checkStockStatus(product),
       },
 

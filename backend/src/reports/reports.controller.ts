@@ -3,7 +3,6 @@ import {
   Get,
   Query,
   BadRequestException,
-  ForbiddenException,
   UseGuards,
 } from '@nestjs/common';
 import { ReportsService } from './reports.service';
@@ -11,6 +10,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { assertStoreAccess } from '../common/utils/store-access.util';
 import { UserRole } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,52 +31,17 @@ export class ReportsController {
   }
 
   /**
-   * Extrait tous les IDs de magasins autorisés de façon robuste depuis le JWT / User context
-   */
-  private extractAllowedStoreIds(user: any): number[] {
-    if (!user) return [];
-
-    const rawIds = [
-      user.assignedStoreId,
-      ...(user.ownedStoreIds || user.ownedStores?.map((s: any) => s.id ?? s) || []),
-      ...(user.assignedStoreIds || user.storeAssignments?.map((a: any) => a.storeId ?? a.store?.id ?? a) || []),
-    ];
-
-    return Array.from(
-      new Set(
-        rawIds
-          .map((id) => Number(id))
-          .filter((id): id is number => !isNaN(id) && id > 0),
-      ),
-    );
-  }
-
-  /**
-   * Vérifie l'accès d'un utilisateur non-admin à un magasin donné.
-   */
-  private checkStoreAccess(user: any, storeId: number) {
-    if (user?.role === UserRole.ADMIN) return;
-
-    const allowedStoreIds = this.extractAllowedStoreIds(user);
-    const targetStoreId = Number(storeId);
-
-    if (!allowedStoreIds.includes(targetStoreId)) {
-      throw new ForbiddenException(
-        "Vous n'avez pas accès aux rapports de ce magasin.",
-      );
-    }
-  }
-
-  /**
    * Résout le storeId demandé :
-   * - Si spécifié : vérifie les droits et renvoie l'ID.
-   * - Si non spécifié : renvoie undefined (le ReportsService filtrera par la liste des magasins autorisés de user).
+   * - Si spécifié : vérifie les droits (BUGFIX : plus de passe-droit ADMIN,
+   *   voir common/utils/store-access.util.ts) et renvoie l'ID.
+   * - Si non spécifié : renvoie undefined (le ReportsService filtrera par la
+   *   liste des magasins autorisés de l'utilisateur).
    */
   private resolveStoreId(user: any, queryStoreId?: string): number | undefined {
     const parsedQueryId = this.parseNumber(queryStoreId);
 
     if (parsedQueryId !== undefined) {
-      this.checkStoreAccess(user, parsedQueryId);
+      assertStoreAccess(user, parsedQueryId, "Vous n'avez pas accès aux rapports de ce magasin.");
       return parsedQueryId;
     }
 
