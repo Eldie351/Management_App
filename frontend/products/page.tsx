@@ -228,7 +228,7 @@ function ProductsContent() {
   if (loading) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gray-100">
-        <LoadingDots size="h-4 w-4" color="bg-blue-600" />
+        <LoadingDots/>
       </div>
     );
   }
