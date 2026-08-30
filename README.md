@@ -7,7 +7,7 @@ L'objectif est de fournir une solution simple, rapide et accessible permettant a
 
 ---
 
-## Résumé des modifications récentes (Ajouts par Copilot)
+## Résumé des modifications récentes
 
 Sur la branche `feature/reports-stats-prisma-nextjs` j'ai intégré plusieurs fonctionnalités front + back pour la page "Rapports & Statistiques" ainsi que l'historique des reçus :
 
