@@ -14,17 +14,28 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 @Injectable()
 export class AuthService {
-  private transporter: nodemailer.Transporter | null = null;
+  private resend: Resend | null = null;
 
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
   ) {
-    this.createTransporter();
+    this.initResend();
+  }
+
+  private initResend() {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+    } else {
+      console.warn(
+        '[Resend] RESEND_API_KEY est absente du fichier .env. Les emails seront uniquement affichés dans la console.',
+      );
+    }
   }
 
   async register(dto: RegisterDto) {
@@ -35,9 +46,6 @@ export class AuthService {
       throw new ConflictException('Un compte avec cet email existe déjà.');
     }
 
-    // usersService.create() hashe déjà le mot de passe en interne : on lui
-    // passe le mot de passe en clair pour éviter un double hachage, qui
-    // rendait la connexion impossible juste après l'inscription.
     const user = await this.usersService.create(
       cleanEmail,
       dto.name,
@@ -67,7 +75,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Récupération des listes d'objets et des tableaux d'IDs simples
     const ownedStores = user.ownedStores ?? [];
     const storeAssignments = user.storeAssignments ?? [];
 
@@ -138,7 +145,7 @@ export class AuthService {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // Expiration 30 min
     const resetUrl = this.buildResetUrl(token);
 
     await this.usersService.setResetToken(user.id, token, expiresAt);
@@ -168,6 +175,7 @@ export class AuthService {
       );
     }
 
+    // Le hashage unique reste inchangé
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     await this.usersService.updatePassword(user.id, hashedPassword);
     await this.usersService.clearResetToken(user.id);
@@ -176,59 +184,53 @@ export class AuthService {
   }
 
   private buildResetUrl(token: string) {
-    return `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
-  }
-
-  private createTransporter() {
-    if (this.transporter) {
-      return this.transporter;
-    }
-
-    const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
-    const port = Number(process.env.EMAIL_PORT || 465);
-    const secure = process.env.EMAIL_SECURE === 'true' || port === 465;
-    const user = process.env.EMAIL_USER;
-    const pass = process.env.EMAIL_PASS;
-
-    if (!user || !pass) {
-      console.warn(
-        '[SMTP] Identifiants absents dans .env. Le lien sera uniquement affiché en console.',
-      );
-      return null;
-    }
-
-    this.transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: { user, pass },
-    });
-
-    return this.transporter;
+    return `${process.env.FRONTEND_URL || 'https://octostock-app.vercel.app'}/reset-password?token=${token}`;
   }
 
   async sendPasswordResetEmail(email: string, resetLink: string) {
     console.log('\n==================================================');
-    console.log('--- [DEV EMAIL FALLBACK] ---');
     console.log(`Destinataire : ${email}`);
     console.log(`Lien de réinitialisation : ${resetLink}`);
     console.log('==================================================\n');
 
+    if (!this.resend) {
+      console.warn('[Resend] Email non envoyé : RESEND_API_KEY non configurée.');
+      return;
+    }
+
     try {
-      if (this.transporter && process.env.EMAIL_USER) {
-        await this.transporter.sendMail({
-          from: process.env.EMAIL_FROM || '"Mon App" <noreply@example.com>',
-          to: email,
-          subject: 'Réinitialisation de votre mot de passe',
-          html: `<p>Cliquez ici pour réinitialiser votre mot de passe : <a href="${resetLink}">${resetLink}</a></p>`,
-        });
-        console.log(`[SMTP] E-mail envoyé avec succès à ${email}`);
+      const fromAddress = process.env.EMAIL_FROM || 'Octostock <onboarding@resend.dev>';
+      
+      const { data, error } = await this.resend.emails.send({
+        from: fromAddress,
+        to: email,
+        subject: 'Réinitialisation de votre mot de passe - Octostock',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+            <h2 style="color: #333;">Réinitialisation de votre mot de passe</h2>
+            <p>Bonjour,</p>
+            <p>Vous avez demandé la réinitialisation de votre mot de passe pour accéder à Octostock.</p>
+            <p>Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe (ce lien expire dans 30 minutes) :</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetLink}" style="background-color: #0070f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                Réinitialiser mon mot de passe
+              </a>
+            </div>
+            <p style="color: #666; font-size: 13px;">Si le bouton ne fonctionne pas, vous pouvez copier et coller ce lien dans votre navigateur :</p>
+            <p style="color: #0070f3; font-size: 13px; word-break: break-all;">${resetLink}</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="color: #999; font-size: 12px;">Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email en toute sécurité.</p>
+          </div>
+        `,
+      });
+
+      if (error) {
+        console.error('[Resend] Erreur renvoyée par l\'API :', error);
+      } else {
+        console.log(`[Resend] E-mail envoyé avec succès (ID: ${data?.id})`);
       }
     } catch (error: any) {
-      console.error(
-        "[SMTP] Erreur lors de l'envoi de l'e-mail :",
-        error.message,
-      );
+      console.error("[Resend] Erreur lors de l'envoi de l'e-mail :", error.message);
     }
   }
 }
