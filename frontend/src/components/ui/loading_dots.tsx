@@ -1,9 +1,5 @@
 
-interface LoadingDotsProps {
-  size?: string;
-  color?: string;
-}
-export function LoadingDots({ size, color }: LoadingDotsProps) {
+export function LoadingDots() {
   return (
     <div className="flex items-center justify-center gap-2">
       <span
