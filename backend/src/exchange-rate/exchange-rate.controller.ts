@@ -1,7 +1,12 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { ExchangeRateService } from './exchange-rate.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 
 @Controller('api/exchange-rates')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ExchangeRateController {
   constructor(private readonly exchangeRateService: ExchangeRateService) {}
 
@@ -40,6 +45,7 @@ export class ExchangeRateController {
    * Manually trigger exchange rate update
    */
   @Post('refresh')
+  @Roles(UserRole.ADMIN)
   async refreshExchangeRates() {
     await this.exchangeRateService.fetchAndCacheExchangeRates();
     return { message: 'Exchange rates refreshed successfully' };
