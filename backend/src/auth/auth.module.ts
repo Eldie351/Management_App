@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './jwt.strategy';
+import { getJwtSecret } from './jwt-secret';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { JwtStrategy } from './jwt.strategy';
     PassportModule,
     // Configuration du JWT avec une durée de validité d'un jour
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'SECRET_PAR_DEFAUT_A_CHANGER',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
   ],
