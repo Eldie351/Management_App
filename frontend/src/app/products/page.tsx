@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { getStockLabel, getStockStatus } from '@/lib/stock-status';
 import { getStoredUserRole } from '@/lib/auth';
+import { escapeHtml } from '@/lib/html';
+import { FileText, Printer } from 'lucide-react';
 
 function ProductsContent() {
   const router = useRouter();
@@ -37,6 +39,11 @@ function ProductsContent() {
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // États pour l'export / impression de la liste des produits
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   // États pour le formulaire de recharge
   const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false);
@@ -173,6 +180,116 @@ function ProductsContent() {
     }
   };
 
+  // Export de la liste des produits du magasin en PDF (téléchargé depuis le backend)
+  const handleExportPdf = async () => {
+    const targetStoreId = storeId || activeStoreId;
+    if (!targetStoreId) return;
+
+    setExportError('');
+    setIsExportingPdf(true);
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const res = await fetch(`${API}/products/store/${targetStoreId}/export/pdf`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        throw new Error("Échec de l'export PDF de l'inventaire.");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err: any) {
+      setExportError(err.message || "Erreur lors de l'export PDF.");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  // Impression directe de la liste des produits actuellement affichée
+  const handlePrintList = () => {
+    setExportError('');
+    setIsPrinting(true);
+
+    const targetStoreId = storeId || activeStoreId;
+    const title = targetStoreId
+      ? `Liste des produits — Magasin #${targetStoreId}`
+      : 'Liste des produits — Tous magasins';
+    const printedAt = new Date().toLocaleString('fr-FR');
+    const showStoreColumn = !targetStoreId || targetStoreId === 'all';
+
+    const rows = filteredProducts
+      .map((p) => {
+        const currency = p.currency || p.store?.currency || 'XOF';
+        const price = Number(p.sellingPrice ?? p.price ?? 0).toFixed(2);
+        return `
+          <tr>
+            <td>${escapeHtml(p.name ?? '')}</td>
+            <td>${escapeHtml(p.sku ?? '—')}</td>
+            ${showStoreColumn ? `<td>${escapeHtml(p.store?.name ?? (p.storeId ? `Magasin #${p.storeId}` : '—'))}</td>` : ''}
+            <td class="text-center">${escapeHtml(p.quantity ?? 0)}</td>
+            <td class="text-right">${escapeHtml(price)} ${escapeHtml(currency)}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const html = `
+      <html>
+        <head>
+          <title>${escapeHtml(title)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+            h1 { font-size: 18px; margin-bottom: 4px; }
+            .meta { color: #666; font-size: 12px; margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            th, td { border: 1px solid #ddd; padding: 6px 8px; }
+            th { background: #f3f4f6; text-align: left; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(title)}</h1>
+          <p class="meta">Imprimé le ${escapeHtml(printedAt)} — ${escapeHtml(filteredProducts.length)} produit(s)</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Désignation</th>
+                <th>SKU</th>
+                ${showStoreColumn ? '<th>Magasin</th>' : ''}
+                <th class="text-center">Stock</th>
+                <th class="text-right">Prix unitaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || `<tr><td colspan="${showStoreColumn ? 5 : 4}" class="text-center">Aucun produit</td></tr>`}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const w = window.open('', '_blank', 'width=900,height=1000');
+    if (!w) {
+      setExportError("Impossible d'ouvrir la fenêtre d'impression (bloquée par le navigateur ?).");
+      setIsPrinting(false);
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => {
+      w.print();
+      w.close();
+      setIsPrinting(false);
+    }, 300);
+  };
+
   // Action pour envoyer les modifications du produit
   const handleUpdateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,10 +390,34 @@ function ProductsContent() {
           <div className="space-x-4">
             <Button variant="outline" onClick={() => router.push('/dashboard')}>← Tableau de bord</Button>
             {currentEffectiveStoreId && role !== 'CASHIER' && (
-              <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={handlePrintList}
+                  disabled={isPrinting}
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  {isPrinting ? 'Impression…' : 'Imprimer'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleExportPdf}
+                  disabled={isExportingPdf}
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  {isExportingPdf ? 'Génération…' : 'Exporter en PDF'}
+                </Button>
+                <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
+              </>
             )}
           </div>
         </div>
+
+        {exportError && (
+          <div className="mb-4 rounded-md bg-red-50 border border-red-200 text-red-600 text-sm p-3">
+            {exportError}
+          </div>
+        )}
 
         {/* Barre de recherche */}
         <div className="mb-6 max-w-md">
