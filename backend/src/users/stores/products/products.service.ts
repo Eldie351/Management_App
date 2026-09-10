@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -150,24 +151,58 @@ export class ProductsService {
     );
   }
 
+  /**
+   * Un même magasin ne peut pas avoir deux produits (non archivés) portant
+   * le même nom (comparaison insensible à la casse/aux espaces superflus).
+   */
+  private async assertNoDuplicateName(storeId: number, name: string, excludeProductId?: number) {
+    const existing = await this.prisma.product.findFirst({
+      where: {
+        storeId,
+        deletedAt: null,
+        name: { equals: name.trim(), mode: 'insensitive' },
+        ...(excludeProductId ? { id: { not: excludeProductId } } : {}),
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `Un produit nommé "${existing.name}" existe déjà dans ce magasin.`,
+      );
+    }
+  }
+
   async createProduct(dto: CreateProductDto & { safetyStock?: number; optimalStock?: number }, userId: number) {
     const storeExists = await this.prisma.store.findUnique({
       where: { id: dto.storeId },
     });
     if (!storeExists) throw new NotFoundException('Magasin introuvable.');
 
+    await this.assertNoDuplicateName(dto.storeId, dto.name);
+
+    // BUGFIX : on vérifiait seulement que la catégorie/le fournisseur
+    // existait quelque part en base, sans vérifier qu'il appartenait au
+    // même magasin que le produit. N'importe quel ADMIN pouvait ainsi lier
+    // son produit à un fournisseur/une catégorie d'un AUTRE commerce et en
+    // exposer les données (ex. coordonnées du fournisseur) via les
+    // suggestions de réapprovisionnement.
     if (dto.categoryId) {
-      const categoryExists = await this.prisma.category.findUnique({
+      const category = await this.prisma.category.findUnique({
         where: { id: dto.categoryId },
       });
-      if (!categoryExists) throw new NotFoundException('Catégorie introuvable.');
+      if (!category) throw new NotFoundException('Catégorie introuvable.');
+      if (category.storeId !== dto.storeId) {
+        throw new NotFoundException('Catégorie introuvable.');
+      }
     }
 
     if (dto.supplierId) {
-      const supplierExists = await this.prisma.supplier.findUnique({
+      const supplier = await this.prisma.supplier.findUnique({
         where: { id: dto.supplierId },
       });
-      if (!supplierExists) throw new NotFoundException('Fournisseur introuvable.');
+      if (!supplier) throw new NotFoundException('Fournisseur introuvable.');
+      if (supplier.storeId !== dto.storeId) {
+        throw new NotFoundException('Fournisseur introuvable.');
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -237,18 +272,35 @@ export class ProductsService {
       assertStoreAccess(user, dto.storeId, "Vous n'avez pas accès au magasin de destination.");
     }
 
+    // BUGFIX : mêmes vérifications d'appartenance au magasin que dans
+    // createProduct (cf. commentaire ci-dessus) — on utilise le magasin de
+    // destination effectif (dto.storeId si fourni, sinon le magasin actuel
+    // du produit).
+    const effectiveStoreId = dto.storeId ?? product.storeId;
+
+    const effectiveName = dto.name ?? product.name;
+    if (dto.name !== undefined || dto.storeId !== undefined) {
+      await this.assertNoDuplicateName(effectiveStoreId, effectiveName, product.id);
+    }
+
     if (dto.categoryId) {
-      const categoryExists = await this.prisma.category.findUnique({
+      const category = await this.prisma.category.findUnique({
         where: { id: dto.categoryId },
       });
-      if (!categoryExists) throw new NotFoundException('Catégorie introuvable.');
+      if (!category) throw new NotFoundException('Catégorie introuvable.');
+      if (category.storeId !== effectiveStoreId) {
+        throw new NotFoundException('Catégorie introuvable.');
+      }
     }
 
     if (dto.supplierId) {
-      const supplierExists = await this.prisma.supplier.findUnique({
+      const supplier = await this.prisma.supplier.findUnique({
         where: { id: dto.supplierId },
       });
-      if (!supplierExists) throw new NotFoundException('Fournisseur introuvable.');
+      if (!supplier) throw new NotFoundException('Fournisseur introuvable.');
+      if (supplier.storeId !== effectiveStoreId) {
+        throw new NotFoundException('Fournisseur introuvable.');
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
