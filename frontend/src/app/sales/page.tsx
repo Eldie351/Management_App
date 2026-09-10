@@ -6,6 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { LoadingDots } from '@/components/ui/loading_dots';
 import { getStoredUserRole, type AppRole } from '@/lib/auth';
+import { escapeHtml } from '@/lib/html';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -371,7 +372,7 @@ export default function SalesPage() {
     const html = `
       <html>
         <head>
-          <title>Reçu ${sale.invoiceNumber}</title>
+          <title>Reçu ${escapeHtml(sale.invoiceNumber)}</title>
           <style>
             body { font-family: Arial, Helvetica, sans-serif; padding: 20px; color: #111; }
             h1, h2, h3 { margin: 0; }
@@ -387,15 +388,15 @@ export default function SalesPage() {
         </head>
         <body>
           <div class="invoice-header">
-            <h1>${storeName}</h1>
-            <p>${formattedLocation}</p>
-            <p>Tél : ${storePhone}</p>
+            <h1>${escapeHtml(storeName)}</h1>
+            <p>${escapeHtml(formattedLocation)}</p>
+            <p>Tél : ${escapeHtml(storePhone)}</p>
           </div>
           <div class="divider"></div>
-          <p><strong>FACTURE N° :</strong> ${sale.invoiceNumber}</p>
-          <p><strong>Date :</strong> ${new Date(sale.createdAt).toLocaleDateString('fr-FR')} à ${new Date(sale.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>
-          <p><strong>Vendeur :</strong> ${sale.user?.name ?? ''}</p>
-          <p><strong>Client :</strong> ${sale.customerName ?? 'Client de passage'}</p>
+          <p><strong>FACTURE N° :</strong> ${escapeHtml(sale.invoiceNumber)}</p>
+          <p><strong>Date :</strong> ${escapeHtml(new Date(sale.createdAt).toLocaleDateString('fr-FR'))} à ${escapeHtml(new Date(sale.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</p>
+          <p><strong>Vendeur :</strong> ${escapeHtml(sale.user?.name ?? '')}</p>
+          <p><strong>Client :</strong> ${escapeHtml(sale.customerName ?? 'Client de passage')}</p>
           <table>
             <thead>
               <tr>
@@ -410,23 +411,23 @@ export default function SalesPage() {
               ${items
                 .map((it: SaleItem) => `
                     <tr>
-                      <td>${it.product?.name ?? ''}</td>
-                      <td>${it.product?.sku ?? ''}</td>
-                      <td>${it.quantity}</td>
-                      <td>${Number(it.unitPrice).toFixed(2)}</td>
-                      <td>${Number(it.total).toFixed(2)}</td>
+                      <td>${escapeHtml(it.product?.name ?? '')}</td>
+                      <td>${escapeHtml(it.product?.sku ?? '')}</td>
+                      <td>${escapeHtml(it.quantity)}</td>
+                      <td>${escapeHtml(Number(it.unitPrice).toFixed(2))}</td>
+                      <td>${escapeHtml(Number(it.total).toFixed(2))}</td>
                     </tr>
                   `)
                 .join('')}
             </tbody>
           </table>
           <div class="summary">
-            <div><span>Sous-total</span><span>${Number(sale.totalAmount ?? 0).toFixed(2)} ${currency}</span></div>
-            <div><span>Remise</span><span>${Number(sale.discount ?? 0).toFixed(2)} ${currency}</span></div>
-            <div><span>Montant reçu</span><span>${Number(sale.amountReceived ?? 0).toFixed(2)} ${currency}</span></div>
-            <div class="total"><span>Total payé</span><span>${Number(sale.totalAmount).toFixed(2)} ${currency}</span></div>
-            <div><span>Rendu</span><span>${Number(sale.changeAmount ?? 0).toFixed(2)} ${currency}</span></div>
-            <div><span>Mode</span><span>${sale.paymentMethod ?? ''}</span></div>
+            <div><span>Sous-total</span><span>${escapeHtml(Number(sale.totalAmount ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>Remise</span><span>${escapeHtml(Number(sale.discount ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>Montant reçu</span><span>${escapeHtml(Number(sale.amountReceived ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div class="total"><span>Total payé</span><span>${escapeHtml(Number(sale.totalAmount).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>Rendu</span><span>${escapeHtml(Number(sale.changeAmount ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>Mode</span><span>${escapeHtml(sale.paymentMethod ?? '')}</span></div>
           </div>
         </body>
       </html>

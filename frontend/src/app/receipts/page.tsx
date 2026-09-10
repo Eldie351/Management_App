@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   CheckCircle2,
 } from 'lucide-react';
+import { escapeHtml } from '@/lib/html';
 
 interface ReceiptItem {
   id?: number | string;
@@ -387,7 +388,7 @@ function ReceiptsContent() {
     const html = `
       <html>
         <head>
-          <title>Reçu ${invoiceNum}</title>
+          <title>Reçu ${escapeHtml(invoiceNum)}</title>
           <style>
             body { font-family: Arial, Helvetica, sans-serif; padding: 20px; color: #111; }
             h1, h2, h3 { margin: 0; }
@@ -403,15 +404,15 @@ function ReceiptsContent() {
         </head>
         <body>
           <div class="invoice-header">
-            <h1>${storeName}</h1>
-            ${formattedLocation ? `<p>${formattedLocation}</p>` : ''}
-            <p>Tél : ${storePhone}</p>
+            <h1>${escapeHtml(storeName)}</h1>
+            ${formattedLocation ? `<p>${escapeHtml(formattedLocation)}</p>` : ''}
+            <p>Tél : ${escapeHtml(storePhone)}</p>
           </div>
           <div class="divider"></div>
-          <p><strong>FACTURE N° :</strong> ${invoiceNum}</p>
-          <p><strong>Date :</strong> ${dateFormatted}</p>
-          <p><strong>Vendeur :</strong> ${cashierName}</p>
-          <p><strong>Client :</strong> ${customer}</p>
+          <p><strong>FACTURE N° :</strong> ${escapeHtml(invoiceNum)}</p>
+          <p><strong>Date :</strong> ${escapeHtml(dateFormatted)}</p>
+          <p><strong>Vendeur :</strong> ${escapeHtml(cashierName)}</p>
+          <p><strong>Client :</strong> ${escapeHtml(customer)}</p>
           <table>
             <thead>
               <tr>
@@ -430,11 +431,11 @@ function ReceiptsContent() {
                   const totalLine = it.total ?? it.totalPrice ? Number(it.total ?? it.totalPrice) : pu * qty;
                   return `
                     <tr>
-                      <td>${getItemName(it)}</td>
-                      <td>${getItemSku(it)}</td>
-                      <td>${qty}</td>
-                      <td>${pu.toFixed(2)}</td>
-                      <td>${totalLine.toFixed(2)}</td>
+                      <td>${escapeHtml(getItemName(it))}</td>
+                      <td>${escapeHtml(getItemSku(it))}</td>
+                      <td>${escapeHtml(qty)}</td>
+                      <td>${escapeHtml(pu.toFixed(2))}</td>
+                      <td>${escapeHtml(totalLine.toFixed(2))}</td>
                     </tr>
                   `;
                 })
@@ -442,12 +443,12 @@ function ReceiptsContent() {
             </tbody>
           </table>
           <div class="summary">
-            <div><span>Sous-total</span><span>${subtotal.toFixed(2)} ${currency}</span></div>
-            <div><span>Remise</span><span>${discount.toFixed(2)} ${currency}</span></div>
-            ${amountReceived > 0 ? `<div><span>Montant reçu</span><span>${amountReceived.toFixed(2)} ${currency}</span></div>` : ''}
-            <div class="total"><span>Total payé</span><span>${subtotal.toFixed(2)} ${currency}</span></div>
-            ${amountReceived > 0 ? `<div><span>Rendu</span><span>${changeAmount.toFixed(2)} ${currency}</span></div>` : ''}
-            <div><span>Mode</span><span>${paymentMethodLabel}</span></div>
+            <div><span>Sous-total</span><span>${escapeHtml(subtotal.toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>Remise</span><span>${escapeHtml(discount.toFixed(2))} ${escapeHtml(currency)}</span></div>
+            ${amountReceived > 0 ? `<div><span>Montant reçu</span><span>${escapeHtml(amountReceived.toFixed(2))} ${escapeHtml(currency)}</span></div>` : ''}
+            <div class="total"><span>Total payé</span><span>${escapeHtml(subtotal.toFixed(2))} ${escapeHtml(currency)}</span></div>
+            ${amountReceived > 0 ? `<div><span>Rendu</span><span>${escapeHtml(changeAmount.toFixed(2))} ${escapeHtml(currency)}</span></div>` : ''}
+            <div><span>Mode</span><span>${escapeHtml(paymentMethodLabel)}</span></div>
           </div>
         </body>
       </html>
