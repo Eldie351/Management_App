@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
-import { MovementType } from '@prisma/client';
+import { DiscountType, MovementType } from '@prisma/client';
 import { assertStoreAccess } from '../common/utils/store-access.util';
 
 @Injectable()
@@ -116,6 +116,22 @@ export class SalesService {
         });
       }
 
+      // 3bis. Calcul sécurisé de la remise, appliquée uniquement sur le
+      // sous-total recalculé côté serveur (jamais sur une valeur fournie par le client)
+      const subtotal = calculatedTotalAmount;
+      const discountType = dto.discountType;
+      const rawDiscountValue = dto.discountValue ?? 0;
+      const discountValue = discountType
+        ? Math.max(0, discountType === DiscountType.PERCENT ? Math.min(rawDiscountValue, 100) : rawDiscountValue)
+        : 0;
+      const discountAmount = discountType
+        ? Math.min(
+            discountType === DiscountType.PERCENT ? (discountValue / 100) * subtotal : discountValue,
+            subtotal,
+          )
+        : 0;
+      calculatedTotalAmount = subtotal - discountAmount;
+
       // 4. Génération d'un numéro de facture unique en séquence par magasin et par année
       const year = new Date().getFullYear();
       const yearStart = new Date(`${year}-01-01T00:00:00.000Z`);
@@ -132,6 +148,10 @@ export class SalesService {
       const sale = await tx.sale.create({
         data: {
           invoiceNumber,
+          subtotal,
+          discountType,
+          discountValue,
+          discountAmount,
           totalAmount: calculatedTotalAmount,
           paymentMethod: dto.paymentMethod,
           storeId: dto.storeId,

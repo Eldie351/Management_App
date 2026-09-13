@@ -34,6 +34,11 @@ enum PaymentMethod {
   OTHER
 }
 
+enum DiscountType {
+  AMOUNT
+  PERCENT
+}
+
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
@@ -188,11 +193,15 @@ model StockMovement {
 }
 
 model Sale {
-  id            Int           @id @default(autoincrement())
-  invoiceNumber String        @unique
-  totalAmount   Float
-  paymentMethod PaymentMethod @default(CASH)
-  createdAt     DateTime      @default(now())
+  id             Int           @id @default(autoincrement())
+  invoiceNumber  String        @unique
+  subtotal       Float         @default(0)
+  discountType   DiscountType?
+  discountValue  Float         @default(0)
+  discountAmount Float         @default(0)
+  totalAmount    Float
+  paymentMethod  PaymentMethod @default(CASH)
+  createdAt      DateTime      @default(now())
 
   userId        Int
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)

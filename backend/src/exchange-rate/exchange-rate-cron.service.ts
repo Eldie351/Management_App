@@ -16,12 +16,19 @@ export class ExchangeRateCronService implements OnApplicationBootstrap, OnModule
   // "client.query() when the client is already executing a query").
   async onApplicationBootstrap() {
     this.logger.log('🚀 Initializing Exchange Rate Cron Service...');
-    // Fetch rates immediately on startup
-    try {
-      await this.exchangeRateService.fetchAndCacheExchangeRates();
-    } catch (error) {
-      this.logger.error('Failed to fetch exchange rates on startup:', error);
-    }
+
+    // BUGFIX : `onApplicationBootstrap` est attendu par Nest avant de
+    // considérer l'application comme démarrée (elle ne se met à écouter
+    // qu'une fois tous ces hooks résolus). Un `await` ici faisait donc
+    // dépendre la disponibilité de TOUTE l'API d'un appel réseau externe et
+    // d'une écriture en base — potentiellement lents (API indisponible,
+    // instance Neon en réveil après inactivité...). On lance la récupération
+    // en tâche de fond sans bloquer le démarrage : le fallback déjà géré
+    // dans ExchangeRateService garantit que l'app reste utilisable même sans
+    // taux de change fraîchement mis en cache.
+    void this.exchangeRateService.fetchAndCacheExchangeRates().catch((error) => {
+      this.logger.error(`Failed to fetch exchange rates on startup: ${String(error)}`);
+    });
 
     // Schedule automatic updates every 6 hours
     this.scheduleCronJob();
@@ -41,7 +48,7 @@ export class ExchangeRateCronService implements OnApplicationBootstrap, OnModule
         this.logger.log('⏱️ Running scheduled exchange rate update...');
         await this.exchangeRateService.fetchAndCacheExchangeRates();
       } catch (error) {
-        this.logger.error('Scheduled exchange rate update failed:', error);
+        this.logger.error(`Scheduled exchange rate update failed: ${String(error)}`);
       } finally {
         this.isRunning = false;
       }

@@ -171,6 +171,53 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Signature d'un nom de produit indépendante de l'ordre des mots :
+   * "Portable 1" et "1 Portable" doivent produire la même signature, pour
+   * détecter les noms probablement redondants qui échappent à la
+   * comparaison exacte de `assertNoDuplicateName`.
+   */
+  private wordOrderSignature(name: string): string {
+    return name
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+      .sort()
+      .join(' ');
+  }
+
+  /**
+   * Retourne les produits (non archivés) du magasin dont le nom contient
+   * exactement les mêmes mots que `name`, dans un ordre différent (les
+   * doublons exacts, déjà bloqués par `assertNoDuplicateName`, sont exclus
+   * ici pour ne pas doubler l'avertissement).
+   */
+  async findSimilarByWordOrder(storeId: number, name: string, excludeProductId?: number) {
+    const signature = this.wordOrderSignature(name);
+    if (!signature || !signature.includes(' ')) {
+      // Un nom d'un seul mot ne peut pas être "réordonné".
+      return [];
+    }
+
+    const trimmedInput = name.trim().toLowerCase();
+
+    const candidates = await this.prisma.product.findMany({
+      where: {
+        storeId,
+        deletedAt: null,
+        ...(excludeProductId ? { id: { not: excludeProductId } } : {}),
+      },
+      select: { id: true, name: true, sku: true, quantity: true },
+    });
+
+    return candidates.filter(
+      (p) =>
+        p.name.trim().toLowerCase() !== trimmedInput &&
+        this.wordOrderSignature(p.name) === signature,
+    );
+  }
+
   async createProduct(dto: CreateProductDto & { safetyStock?: number; optimalStock?: number }, userId: number) {
     const storeExists = await this.prisma.store.findUnique({
       where: { id: dto.storeId },
@@ -401,6 +448,19 @@ export class ProductsService {
         createdAt: 'desc',
       },
     });
+  }
+
+  /**
+   * Nom (et devise) du magasin, pour l'en-tête et le nom de fichier des
+   * exports PDF/Excel — on ne veut jamais afficher l'ID numérique du
+   * magasin à l'utilisateur, seulement son nom.
+   */
+  async getStoreForExport(storeId: number): Promise<{ name: string; currency: string }> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { name: true, currency: true },
+    });
+    return store ?? { name: `Magasin ${storeId}`, currency: 'XOF' };
   }
 
   async deleteProduct(id: number, user: any) {

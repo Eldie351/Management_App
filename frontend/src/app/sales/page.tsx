@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Printer, X } from 'lucide-react';
 
 type PaymentMethodType = 'CASH' | 'CARD' | 'MOBILE_MONEY' | 'OTHER';
+type DiscountType = 'AMOUNT' | 'PERCENT';
 
 interface Store {
   id: number;
@@ -60,7 +61,10 @@ interface Sale {
   };
   items?: SaleItem[];
   customerName?: string;
+  subtotal?: number;
   discount?: number;
+  discountType?: DiscountType;
+  discountValue?: number;
   amountReceived?: number;
   changeAmount?: number;
 }
@@ -95,7 +99,8 @@ export default function SalesPage() {
   const [customerName, setCustomerName] = useState<string>('Client de passage');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('CASH');
   const [amountReceived, setAmountReceived] = useState<number>(0);
-  const [discount, setDiscount] = useState<number>(0);
+  const [discountType, setDiscountType] = useState<DiscountType>('AMOUNT');
+  const [discountValue, setDiscountValue] = useState<number>(0);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -289,7 +294,12 @@ export default function SalesPage() {
   };
 
   const cartSubtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const cartDiscount = discount > 0 ? Math.min(discount, cartSubtotal) : 0;
+  const cartDiscount =
+    discountValue > 0
+      ? discountType === 'PERCENT'
+        ? (Math.min(discountValue, 100) / 100) * cartSubtotal
+        : Math.min(discountValue, cartSubtotal)
+      : 0;
   const cartTotal = cartSubtotal - cartDiscount;
   const changeAmount = amountReceived - cartTotal;
 
@@ -324,6 +334,7 @@ export default function SalesPage() {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         })),
+        ...(discountValue > 0 ? { discountType, discountValue } : {}),
       };
 
       const response = await fetch(`${API}/sales`, {
@@ -343,13 +354,16 @@ export default function SalesPage() {
         customerName,
         paymentMethod,
         amountReceived,
-        discount: cartDiscount,
+        discount: sale.discountAmount ?? cartDiscount,
+        discountType: sale.discountType ?? discountType,
+        discountValue: sale.discountValue ?? discountValue,
         changeAmount,
       });
       setCart([]);
       await fetchProductsForStore(selectedStoreId);
       setAmountReceived(0);
-      setDiscount(0);
+      setDiscountType('AMOUNT');
+      setDiscountValue(0);
       setCustomerName('Client de passage');
       setPaymentMethod('CASH');
     } catch (err: unknown) {
@@ -369,6 +383,13 @@ export default function SalesPage() {
       ? storeLocation
       : `${storeLocation}${storeLocation ? ', Bénin' : 'Bénin'}`;
     const currency = sale.store?.currency ?? currentStoreObj?.currency ?? 'XOF';
+    const discountAmount = Number(sale.discount ?? 0);
+    const subtotal = Number(sale.subtotal ?? Number(sale.totalAmount ?? 0) + discountAmount);
+    const totalPaid = Number(sale.totalAmount ?? subtotal - discountAmount);
+    const discountLabel =
+      sale.discountType === 'PERCENT' && sale.discountValue
+        ? `Remise (${escapeHtml(sale.discountValue)}%)`
+        : 'Remise';
     const html = `
       <html>
         <head>
@@ -422,10 +443,10 @@ export default function SalesPage() {
             </tbody>
           </table>
           <div class="summary">
-            <div><span>Sous-total</span><span>${escapeHtml(Number(sale.totalAmount ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
-            <div><span>Remise</span><span>${escapeHtml(Number(sale.discount ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>Sous-total</span><span>${escapeHtml(subtotal.toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div><span>${discountLabel}</span><span>- ${escapeHtml(discountAmount.toFixed(2))} ${escapeHtml(currency)}</span></div>
             <div><span>Montant reçu</span><span>${escapeHtml(Number(sale.amountReceived ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
-            <div class="total"><span>Total payé</span><span>${escapeHtml(Number(sale.totalAmount).toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div class="total"><span>Total payé</span><span>${escapeHtml(totalPaid.toFixed(2))} ${escapeHtml(currency)}</span></div>
             <div><span>Rendu</span><span>${escapeHtml(Number(sale.changeAmount ?? 0).toFixed(2))} ${escapeHtml(currency)}</span></div>
             <div><span>Mode</span><span>${escapeHtml(sale.paymentMethod ?? '')}</span></div>
           </div>
@@ -708,14 +729,27 @@ export default function SalesPage() {
 
                         <div className="space-y-3">
                           <div>
-                            <Label htmlFor="discount">Remise ({storeCurrency})</Label>
-                            <Input
-                              id="discount"
-                              type="number"
-                              min="0"
-                              value={discount}
-                              onChange={(e) => setDiscount(Number(e.target.value))}
-                            />
+                            <Label htmlFor="discount">Remise</Label>
+                            <div className="flex gap-2">
+                              <select
+                                id="discountType"
+                                value={discountType}
+                                onChange={(e) => setDiscountType(e.target.value as DiscountType)}
+                                className="rounded-lg border p-2 text-sm bg-white"
+                              >
+                                <option value="AMOUNT">{storeCurrency}</option>
+                                <option value="PERCENT">%</option>
+                              </select>
+                              <Input
+                                id="discount"
+                                type="number"
+                                min="0"
+                                max={discountType === 'PERCENT' ? 100 : undefined}
+                                value={discountValue}
+                                onChange={(e) => setDiscountValue(Number(e.target.value))}
+                                className="flex-1"
+                              />
+                            </div>
                           </div>
                           <div>
                             <Label htmlFor="amountReceived">Montant reçu ({storeCurrency})</Label>
@@ -736,7 +770,7 @@ export default function SalesPage() {
                           <strong>{cartSubtotal.toFixed(2)} {storeCurrency}</strong>
                         </div>
                         <div className="flex justify-between py-1">
-                          <span>Remise</span>
+                          <span>Remise{discountType === 'PERCENT' && discountValue > 0 ? ` (${Math.min(discountValue, 100)}%)` : ''}</span>
                           <strong>- {cartDiscount.toFixed(2)} {storeCurrency}</strong>
                         </div>
                         <div className="border-t pt-2 flex justify-between font-semibold">

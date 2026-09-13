@@ -159,7 +159,7 @@ export class ExchangeRateService {
 
       this.logger.log('... Exchange rates cached successfully');
     } catch (error) {
-      this.logger.warn('Using fallback exchange rates because the update failed.', error);
+      this.logger.warn(`Using fallback exchange rates because the update failed: ${String(error)}`);
     }
   }
 

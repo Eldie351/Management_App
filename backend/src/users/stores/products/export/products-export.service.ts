@@ -68,9 +68,16 @@ export class ProductsExportService {
   }
 
   /**
-   * Génère un PDF listant les produits d'un magasin (tableau simple).
+   * Génère un PDF listant les produits d'un magasin. Les colonnes et le
+   * titre reproduisent volontairement exactement la vue "Imprimer" du
+   * frontend (frontend/src/app/products/page.tsx, handlePrintList) pour que
+   * la fiche imprimée et le PDF téléchargé soient identiques.
    */
-  async generateProductsPdf(products: ExportableProduct[]): Promise<Buffer> {
+  async generateProductsPdf(
+    products: ExportableProduct[],
+    storeName: string,
+    storeCurrency: string,
+  ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
       const chunks: Buffer[] = [];
@@ -79,22 +86,20 @@ export class ProductsExportService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc.fontSize(16).text('Liste des produits', { align: 'center' });
+      const title = `Liste des produits — ${storeName}`;
+      doc.fontSize(16).text(title, { align: 'center' });
       doc.moveDown(0.5);
-      doc.fontSize(9).fillColor('#666666').text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, {
-        align: 'center',
-      });
+      doc.fontSize(9).fillColor('#666666').text(
+        `Imprimé le ${new Date().toLocaleString('fr-FR')} — ${products.length} produit(s)`,
+        { align: 'center' },
+      );
       doc.moveDown(1);
       doc.fillColor('#000000');
 
       const columns = [
-        { key: 'name', label: 'Nom', width: 160 },
-        { key: 'sku', label: 'SKU', width: 90 },
-        { key: 'quantity', label: 'Stock', width: 60 },
-        { key: 'minimumStock', label: 'Seuil', width: 60 },
-        { key: 'status', label: 'Statut', width: 70 },
-        { key: 'sellingPrice', label: 'Prix', width: 70 },
-        { key: 'stockValue', label: 'Valeur stock', width: 90 },
+        { key: 'name', label: 'Désignation', width: 340, align: 'left' as const },
+        { key: 'quantity', label: 'Stock Actuel', width: 150, align: 'center' as const },
+        { key: 'sellingPrice', label: 'Prix Unitaire', width: 150, align: 'right' as const },
       ];
 
       const startX = doc.page.margins.left;
@@ -105,7 +110,7 @@ export class ProductsExportService {
         let x = startX;
         doc.fontSize(9).font(isHeader ? 'Helvetica-Bold' : 'Helvetica');
         columns.forEach((col, i) => {
-          doc.text(values[i], x, y, { width: col.width, ellipsis: true });
+          doc.text(values[i], x, y, { width: col.width, align: col.align, ellipsis: true });
           x += col.width;
         });
         y += rowHeight;
@@ -124,16 +129,11 @@ export class ProductsExportService {
           y = doc.page.margins.top;
         }
 
-        const status = p.quantity <= 0 ? 'Rupture' : p.quantity <= p.minimumStock ? 'Faible' : 'Normal';
-        drawRow([
-          p.name,
-          p.sku ?? '—',
-          String(p.quantity),
-          String(p.minimumStock),
-          status,
-          p.sellingPrice.toFixed(2),
-          (p.quantity * p.sellingPrice).toFixed(2),
-        ]);
+        drawRow([p.name, String(p.quantity), `${p.sellingPrice.toFixed(2)} ${storeCurrency}`]);
+      }
+
+      if (products.length === 0) {
+        doc.fontSize(9).font('Helvetica').text('Aucun produit', startX, y);
       }
 
       doc.end();

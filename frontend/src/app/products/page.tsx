@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { getStockLabel, getStockStatus } from '@/lib/stock-status';
 import { getStoredUserRole } from '@/lib/auth';
 import { escapeHtml } from '@/lib/html';
 import { FileText, Printer } from 'lucide-react';
@@ -22,6 +21,7 @@ function ProductsContent() {
 
   const [role, setRole] = useState<string | null>(null);
   const [activeStoreId, setActiveStoreId] = useState<string | null>(storeId);
+  const [storeName, setStoreName] = useState<string | null>(null);
 
   // États pour les données
   const [products, setProducts] = useState<any[]>([]);
@@ -39,6 +39,11 @@ function ProductsContent() {
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Produits existants dont le nom contient exactement les mêmes mots,
+  // dans un ordre différent (ex : "Portable 1" / "1 Portable") — avertit
+  // sans bloquer, contrairement à un doublon exact.
+  const [similarProducts, setSimilarProducts] = useState<any[]>([]);
+  const [isCheckingSimilar, setIsCheckingSimilar] = useState(false);
 
   // États pour l'export / impression de la liste des produits
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -124,6 +129,34 @@ function ProductsContent() {
     fetchProducts();
   }, [fetchProducts]);
 
+  // Récupère le nom du magasin sélectionné (l'ID seul n'est pas parlant pour l'utilisateur).
+  useEffect(() => {
+    const targetStoreId = storeId || activeStoreId;
+    if (!targetStoreId) {
+      setStoreName(null);
+      return;
+    }
+
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+
+    let cancelled = false;
+    fetch(`${API}/stores/${targetStoreId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled) setStoreName(data?.name ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setStoreName(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [API, storeId, activeStoreId]);
+
   // Filtrage dynamique en temps réel
   const filteredProducts = products.filter((product) => {
     const query = searchQuery.toLowerCase().trim();
@@ -135,13 +168,10 @@ function ProductsContent() {
     );
   });
 
-  // Soumission du nouveau produit
-  const handleCreateProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError('');
+  // Envoie effectivement la création du produit au backend.
+  const submitProductCreation = async () => {
     setIsSubmitting(true);
     const token = localStorage.getItem('access_token');
-
     const targetStoreId = storeId || activeStoreId;
 
     try {
@@ -171,6 +201,7 @@ function ProductsContent() {
       setPrice(0);
       setMinimumStock(5);
       setDescription('');
+      setSimilarProducts([]);
       setIsModalOpen(false);
       fetchProducts();
     } catch (err: any) {
@@ -178,6 +209,43 @@ function ProductsContent() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Soumission du formulaire : avant de créer, vérifie s'il existe déjà un
+  // produit avec exactement les mêmes mots dans un ordre différent. Si oui,
+  // affiche un avertissement et attend une confirmation explicite avant de
+  // créer réellement (le bouton "Créer quand même" ré-appelle cette même
+  // fonction avec `similarProducts` déjà rempli, donc la vérification est
+  // sautée et la création se fait directement).
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+
+    const targetStoreId = storeId || activeStoreId;
+
+    if (similarProducts.length === 0 && targetStoreId) {
+      setIsCheckingSimilar(true);
+      try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch(
+          `${API}/products/store/${targetStoreId}/similar-names?name=${encodeURIComponent(name)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (res.ok) {
+          const similar = await res.json();
+          if (Array.isArray(similar) && similar.length > 0) {
+            setSimilarProducts(similar);
+            setIsCheckingSimilar(false);
+            return;
+          }
+        }
+      } catch {
+        // Vérification purement informative : en cas d'échec, on ne bloque pas la création.
+      }
+      setIsCheckingSimilar(false);
+    }
+
+    await submitProductCreation();
   };
 
   // Export de la liste des produits du magasin en PDF (téléchargé depuis le backend)
@@ -215,22 +283,25 @@ function ProductsContent() {
     setExportError('');
     setIsPrinting(true);
 
+    // BUGFIX : la fiche imprimée doit être identique au PDF généré par le
+    // backend (ProductsExportService.generateProductsPdf) — mêmes colonnes
+    // (Désignation / Stock Actuel / Prix Unitaire), même titre, et surtout
+    // le même contenu : l'inventaire complet du magasin, indépendamment du
+    // filtre de recherche actif à l'écran (on utilise `products`, pas
+    // `filteredProducts`).
     const targetStoreId = storeId || activeStoreId;
     const title = targetStoreId
-      ? `Liste des produits — Magasin #${targetStoreId}`
+      ? `Liste des produits — ${storeName || `Magasin #${targetStoreId}`}`
       : 'Liste des produits — Tous magasins';
     const printedAt = new Date().toLocaleString('fr-FR');
-    const showStoreColumn = !targetStoreId || targetStoreId === 'all';
 
-    const rows = filteredProducts
+    const rows = products
       .map((p) => {
         const currency = p.currency || p.store?.currency || 'XOF';
         const price = Number(p.sellingPrice ?? p.price ?? 0).toFixed(2);
         return `
           <tr>
             <td>${escapeHtml(p.name ?? '')}</td>
-            <td>${escapeHtml(p.sku ?? '—')}</td>
-            ${showStoreColumn ? `<td>${escapeHtml(p.store?.name ?? (p.storeId ? `Magasin #${p.storeId}` : '—'))}</td>` : ''}
             <td class="text-center">${escapeHtml(p.quantity ?? 0)}</td>
             <td class="text-right">${escapeHtml(price)} ${escapeHtml(currency)}</td>
           </tr>
@@ -255,19 +326,17 @@ function ProductsContent() {
         </head>
         <body>
           <h1>${escapeHtml(title)}</h1>
-          <p class="meta">Imprimé le ${escapeHtml(printedAt)} — ${escapeHtml(filteredProducts.length)} produit(s)</p>
+          <p class="meta">Imprimé le ${escapeHtml(printedAt)} — ${escapeHtml(products.length)} produit(s)</p>
           <table>
             <thead>
               <tr>
                 <th>Désignation</th>
-                <th>SKU</th>
-                ${showStoreColumn ? '<th>Magasin</th>' : ''}
-                <th class="text-center">Stock</th>
-                <th class="text-right">Prix unitaire</th>
+                <th class="text-center">Stock Actuel</th>
+                <th class="text-right">Prix Unitaire</th>
               </tr>
             </thead>
             <tbody>
-              ${rows || `<tr><td colspan="${showStoreColumn ? 5 : 4}" class="text-center">Aucun produit</td></tr>`}
+              ${rows || `<tr><td colspan="3" class="text-center">Aucun produit</td></tr>`}
             </tbody>
           </table>
         </body>
@@ -383,7 +452,7 @@ function ProductsContent() {
             </h1>
             <p className="text-muted-foreground mt-1">
               {currentEffectiveStoreId
-                ? `Entrepôt référencé : #${currentEffectiveStoreId}`
+                ? `Entrepôt : ${storeName || `Magasin #${currentEffectiveStoreId}`}`
                 : 'Consultez la totalité des articles en stock'}
             </p>
           </div>
@@ -407,7 +476,15 @@ function ProductsContent() {
                   <FileText className="h-4 w-4 mr-2" />
                   {isExportingPdf ? 'Génération…' : 'Exporter en PDF'}
                 </Button>
-                <Button onClick={() => setIsModalOpen(true)}>+ Ajouter un Produit</Button>
+                <Button
+                  onClick={() => {
+                    setSimilarProducts([]);
+                    setFormError('');
+                    setIsModalOpen(true);
+                  }}
+                >
+                  + Ajouter un Produit
+                </Button>
               </>
             )}
           </div>
@@ -451,7 +528,6 @@ function ProductsContent() {
                     <TableHead>Entrepôt</TableHead>
                   )}
                   <TableHead className="text-center">Stock Actuel</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
                   <TableHead className="text-right">Prix Unitaire</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -473,18 +549,6 @@ function ProductsContent() {
 
                     <TableCell className="text-center font-semibold">
                       <span className="text-sm text-gray-700">{product.quantity} unités</span>
-                    </TableCell>
-
-                    <TableCell className="text-center font-semibold">
-                      {(() => {
-                        const status = getStockStatus(product);
-                        const statusInfo = getStockLabel(status);
-                        return (
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs ${statusInfo.className}`}>
-                            {statusInfo.label}
-                          </span>
-                        );
-                      })()}
                     </TableCell>
 
                     <TableCell className="text-right font-mono font-bold">
@@ -513,7 +577,7 @@ function ProductsContent() {
                 {filteredProducts.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={currentEffectiveStoreId && currentEffectiveStoreId !== 'all' ? 5 : 6}
+                      colSpan={currentEffectiveStoreId && currentEffectiveStoreId !== 'all' ? 4 : 5}
                       className="text-center py-8 text-gray-400"
                     >
                       Aucun produit ne correspond à votre recherche.
@@ -539,7 +603,16 @@ function ProductsContent() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="prodName">Nom du produit *</Label>
-                    <Input id="prodName" placeholder="Ex: Ordinateur Portable ASUS" value={name} onChange={(e) => setName(e.target.value)} required />
+                    <Input
+                      id="prodName"
+                      placeholder="Ex: Ordinateur Portable ASUS"
+                      value={name}
+                      onChange={(e) => {
+                        setName(e.target.value);
+                        if (similarProducts.length > 0) setSimilarProducts([]);
+                      }}
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="prodSku">Référence interne (SKU)</Label>
@@ -567,9 +640,38 @@ function ProductsContent() {
                     <Input id="prodDesc" placeholder="Détails techniques, couleur..." value={description} onChange={(e) => setDescription(e.target.value)} />
                   </div>
                 </div>
+
+                {similarProducts.length > 0 && (
+                  <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 space-y-2">
+                    <p className="font-medium">
+                      Un ou plusieurs produits existants portent exactement les mêmes mots, dans un ordre différent :
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      {similarProducts.map((p) => (
+                        <li key={p.id}>
+                          <span className="font-semibold">{p.name}</span>
+                          {p.sku ? ` (SKU: ${p.sku})` : ''} — {p.quantity} unité(s) en stock
+                        </li>
+                      ))}
+                    </ul>
+                    <p>Voulez-vous quand même créer &quot;{name}&quot; comme un nouveau produit distinct ?</p>
+                  </div>
+                )}
+
                 <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
-                  <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Annuler</Button>
-                  <Button type="submit" disabled={isSubmitting}>Valider l’entrée</Button>
+                  <Button type="button" variant="outline" onClick={() => { setSimilarProducts([]); setIsModalOpen(false); }}>Annuler</Button>
+                  {similarProducts.length > 0 && (
+                    <Button type="button" variant="outline" onClick={() => setSimilarProducts([])}>
+                      Modifier le nom
+                    </Button>
+                  )}
+                  <Button type="submit" disabled={isSubmitting || isCheckingSimilar}>
+                    {isCheckingSimilar
+                      ? 'Vérification…'
+                      : similarProducts.length > 0
+                        ? 'Créer quand même'
+                        : 'Valider l’entrée'}
+                  </Button>
                 </div>
               </form>
             </CardContent>

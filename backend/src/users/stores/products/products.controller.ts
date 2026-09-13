@@ -23,6 +23,22 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsExportService } from './export/products-export.service';
 
+/**
+ * Nom de fichier lisible : jamais l'ID numérique du magasin, mais son nom
+ * (translittéré en ASCII pour rester valide dans un en-tête HTTP).
+ */
+const COMBINING_DIACRITICS = /[̀-ͯ]/g;
+
+function slugifyForFilename(value: string): string {
+  const slug = value
+    .normalize('NFD')
+    .replace(COMBINING_DIACRITICS, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  return slug || 'magasin';
+}
+
 @Controller('products')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProductsController {
@@ -102,6 +118,25 @@ export class ProductsController {
   ) {
     assertStoreAccess(user, storeId);
     return this.productsService.findLowStockProductsByStore(storeId);
+  }
+
+  /**
+   * Produits du magasin dont le nom contient exactement les mêmes mots que
+   * `name`, dans un ordre différent (ex : "Portable 1" / "1 Portable").
+   * Utilisé par le frontend pour avertir avant la création d'un doublon
+   * probable, sans pour autant bloquer la création (contrairement à un
+   * doublon exact, refusé dans ProductsService.createProduct).
+   */
+  @Get('store/:storeId/similar-names')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async getSimilarNames(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Query('name') name: string,
+    @CurrentUser() user: any,
+  ) {
+    assertStoreAccess(user, storeId);
+    if (!name || !name.trim()) return [];
+    return this.productsService.findSimilarByWordOrder(storeId, name);
   }
 
   @Get(':id/details')
@@ -207,13 +242,16 @@ export class ProductsController {
   ) {
     assertStoreAccess(user, storeId);
 
-    const products = await this.productsService.findAllByStore(storeId);
+    const [products, store] = await Promise.all([
+      this.productsService.findAllByStore(storeId),
+      this.productsService.getStoreForExport(storeId),
+    ]);
     const buffer = await this.productsExportService.generateProductsExcel(products);
 
     res.set({
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="produits-magasin-${storeId}.xlsx"`,
+      'Content-Disposition': `attachment; filename="produits-${slugifyForFilename(store.name)}.xlsx"`,
     });
     res.send(buffer);
   }
@@ -227,12 +265,19 @@ export class ProductsController {
   ) {
     assertStoreAccess(user, storeId);
 
-    const products = await this.productsService.findAllByStore(storeId);
-    const buffer = await this.productsExportService.generateProductsPdf(products);
+    const [products, store] = await Promise.all([
+      this.productsService.findAllByStore(storeId),
+      this.productsService.getStoreForExport(storeId),
+    ]);
+    const buffer = await this.productsExportService.generateProductsPdf(
+      products,
+      store.name,
+      store.currency,
+    );
 
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="produits-magasin-${storeId}.pdf"`,
+      'Content-Disposition': `attachment; filename="produits-${slugifyForFilename(store.name)}.pdf"`,
     });
     res.send(buffer);
   }

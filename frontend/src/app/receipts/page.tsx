@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarDays,
-  Store as StoreIcon,
   ArrowLeft,
   CheckCircle2,
 } from 'lucide-react';
@@ -62,7 +61,11 @@ interface Receipt {
   amount?: number;
   paymentMethod?: string;
   customerName?: string;
+  subtotal?: number;
   discount?: number;
+  discountType?: 'AMOUNT' | 'PERCENT';
+  discountValue?: number;
+  discountAmount?: number;
   amountReceived?: number;
   changeAmount?: number;
   user?: { name?: string; username?: string; fullName?: string };
@@ -358,6 +361,10 @@ function ReceiptsContent() {
   };
 
   const getTotalAmount = (r: Receipt) => Number(r.totalAmount ?? r.total ?? r.amount ?? 0);
+  const getSubtotalAmount = (r: Receipt) => Number(r.subtotal ?? getTotalAmount(r));
+  const getDiscountAmount = (r: Receipt) => Number(r.discountAmount ?? r.discount ?? 0);
+  const getDiscountLabel = (r: Receipt) =>
+    r.discountType === 'PERCENT' && r.discountValue ? `Remise (${Number(r.discountValue)}%)` : 'Remise';
 
   // Fonction d'impression identique à celle de SalesPage
   const printReceipt = (sale: Receipt | null) => {
@@ -379,8 +386,10 @@ function ReceiptsContent() {
       : '—';
     const cashierName = getCashierName(sale);
     const customer = sale.customerName || 'Client de passage';
-    const subtotal = getTotalAmount(sale);
-    const discount = Number(sale.discount ?? 0);
+    const subtotal = getSubtotalAmount(sale);
+    const discount = getDiscountAmount(sale);
+    const discountLabel = getDiscountLabel(sale);
+    const totalPaid = getTotalAmount(sale);
     const amountReceived = Number(sale.amountReceived ?? 0);
     const changeAmount = Number(sale.changeAmount ?? 0);
     const paymentMethodLabel = sale.paymentMethod === 'CASH' ? 'Espèces' : sale.paymentMethod === 'MOBILE_MONEY' ? 'MoMo' : sale.paymentMethod === 'CARD' ? 'Carte' : sale.paymentMethod || 'Espèces';
@@ -444,9 +453,9 @@ function ReceiptsContent() {
           </table>
           <div class="summary">
             <div><span>Sous-total</span><span>${escapeHtml(subtotal.toFixed(2))} ${escapeHtml(currency)}</span></div>
-            <div><span>Remise</span><span>${escapeHtml(discount.toFixed(2))} ${escapeHtml(currency)}</span></div>
+            ${discount > 0 ? `<div><span>${escapeHtml(discountLabel)}</span><span>- ${escapeHtml(discount.toFixed(2))} ${escapeHtml(currency)}</span></div>` : ''}
             ${amountReceived > 0 ? `<div><span>Montant reçu</span><span>${escapeHtml(amountReceived.toFixed(2))} ${escapeHtml(currency)}</span></div>` : ''}
-            <div class="total"><span>Total payé</span><span>${escapeHtml(subtotal.toFixed(2))} ${escapeHtml(currency)}</span></div>
+            <div class="total"><span>Total payé</span><span>${escapeHtml(totalPaid.toFixed(2))} ${escapeHtml(currency)}</span></div>
             ${amountReceived > 0 ? `<div><span>Rendu</span><span>${escapeHtml(changeAmount.toFixed(2))} ${escapeHtml(currency)}</span></div>` : ''}
             <div><span>Mode</span><span>${escapeHtml(paymentMethodLabel)}</span></div>
           </div>
@@ -507,50 +516,49 @@ function ReceiptsContent() {
         {/* ÉTAPE 1 : SÉLECTION DU MAGASIN                                       */}
         {/* ==================================================================== */}
         {!selectedStore ? (
-          <div className="max-w-4xl mx-auto py-6">
-            <div className="text-center mb-8">
-              <div className="mx-auto w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3">
-                <StoreIcon className="w-6 h-6" />
-              </div>
-              <h2 className="text-xl font-bold text-gray-800">Sélectionnez un magasin</h2>
-              <p className="text-sm text-slate-500 mt-1">
-                Choisissez l'établissement dont vous souhaitez consulter les reçus de vente.
-              </p>
-            </div>
-
+          // Même présentation que la sélection de magasin sur la page de
+          // vente (frontend/src/app/sales/page.tsx), pour rester cohérent
+          // d'une page à l'autre.
+          <div className="space-y-6">
             {loadingStores ? (
               <div className="flex py-16 justify-center items-center">
                 <LoadingDots size="h-4 w-4" color="bg-blue-600" />
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {stores.map((store) => {
-                  const storeName = store.name || store.title || `Magasin #${store.id}`;
-                  return (
-                    <Card
-                      key={store.id}
-                      onClick={() => setSelectedStore(store)}
-                      className="cursor-pointer hover:border-blue-500 hover:shadow-md transition-all border-2 border-slate-200 bg-white"
-                    >
-                      <CardContent className="p-6 flex flex-col justify-between min-h-[140px]">
-                        <div className="flex items-start justify-between">
-                          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg">
-                            <StoreIcon className="w-5 h-5" />
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {stores.length > 0 ? (
+                  stores.map((store) => {
+                    const storeName = store.name || store.title || `Magasin #${store.id}`;
+                    return (
+                      <Card
+                        key={store.id}
+                        className="cursor-pointer hover:border-blue-500 hover:shadow-lg transition-shadow bg-white"
+                        onClick={() => setSelectedStore(store)}
+                      >
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle>{storeName}</CardTitle>
+                            <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 border border-blue-200">
+                              {store.currency || 'XOF'}
+                            </span>
                           </div>
-                          <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded">
-                            {store.currency || 'XOF'}
-                          </span>
-                        </div>
-                        <div className="mt-4">
-                          <h3 className="font-bold text-slate-800 text-base">{storeName}</h3>
-                          <p className="text-xs text-slate-500 mt-0.5 truncate">
-                            {store.location || store.address || 'Emplacement non renseigné'}
-                          </p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                          <CardDescription>{store.location || store.address || 'Localisation non renseignée'}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-sm text-gray-600">
+                            <p className="mt-2 text-xs text-muted-foreground">Cliquez pour ouvrir ce magasin</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })
+                ) : (
+                  <Card>
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-gray-600">Aucun magasin associé à votre compte.</p>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
           </div>
@@ -760,8 +768,10 @@ function ReceiptsContent() {
         const formattedLocation = storeLocation ? (storeLocation.includes('Bénin') ? storeLocation : `${storeLocation}, Bénin`) : '';
         const currency = storeObj?.currency || selectedReceipt.currency || selectedStore?.currency || 'XOF';
         const items = getItemsList(selectedReceipt);
-        const subtotal = getTotalAmount(selectedReceipt);
-        const discount = Number(selectedReceipt.discount ?? 0);
+        const subtotal = getSubtotalAmount(selectedReceipt);
+        const discount = getDiscountAmount(selectedReceipt);
+        const discountLabel = getDiscountLabel(selectedReceipt);
+        const totalPaid = getTotalAmount(selectedReceipt);
         const amountReceived = Number(selectedReceipt.amountReceived ?? 0);
         const changeAmount = Number(selectedReceipt.changeAmount ?? 0);
         const paymentMethodLabel = selectedReceipt.paymentMethod === 'CASH' ? 'Espèces' : selectedReceipt.paymentMethod === 'MOBILE_MONEY' ? 'MoMo' : selectedReceipt.paymentMethod === 'CARD' ? 'Carte' : selectedReceipt.paymentMethod || 'Espèces';
@@ -841,10 +851,12 @@ function ReceiptsContent() {
                     <span>Sous-total</span>
                     <span className="font-mono">{subtotal.toFixed(2)} {currency}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Remise</span>
-                    <span className="font-mono">{discount.toFixed(2)} {currency}</span>
-                  </div>
+                  {discount > 0 && (
+                    <div className="flex justify-between">
+                      <span>{discountLabel}</span>
+                      <span className="font-mono">- {discount.toFixed(2)} {currency}</span>
+                    </div>
+                  )}
                   {amountReceived > 0 && (
                     <div className="flex justify-between">
                       <span>Montant reçu</span>
@@ -853,7 +865,7 @@ function ReceiptsContent() {
                   )}
                   <div className="flex justify-between font-bold text-sm border-t pt-1">
                     <span>Total payé</span>
-                    <span className="font-mono">{subtotal.toFixed(2)} {currency}</span>
+                    <span className="font-mono">{totalPaid.toFixed(2)} {currency}</span>
                   </div>
                   {amountReceived > 0 && (
                     <div className="flex justify-between">

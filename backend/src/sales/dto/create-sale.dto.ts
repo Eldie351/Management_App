@@ -1,14 +1,16 @@
 import { Type } from 'class-transformer';
-import { 
-  IsArray, 
-  IsEnum, 
-  IsInt, 
-  IsNotEmpty, 
-  IsNumber, 
-  IsPositive, 
-  ValidateNested 
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  Min,
+  ValidateNested
 } from 'class-validator';
-import { PaymentMethod } from '@prisma/client';
+import { DiscountType, PaymentMethod } from '@prisma/client';
 
 export class SaleItemDto {
   @IsInt()
@@ -36,4 +38,13 @@ export class CreateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => SaleItemDto)
   items: SaleItemDto[];
+
+  @IsOptional()
+  @IsEnum(DiscountType, { message: 'Type de remise invalide' })
+  discountType?: DiscountType;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0, { message: 'La remise ne peut pas être négative' })
+  discountValue?: number;
 }
