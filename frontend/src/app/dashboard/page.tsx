@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { LoadingDots } from "@/components/ui/loading_dots";
 import {
   Warehouse,
-  Package,
+  Ticket,
   AlertTriangle,
   PackageX,
   Plus,
@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState("");
+  const [pendingTicketsCount, setPendingTicketsCount] = useState(0);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newStoreName, setNewStoreName] = useState("");
@@ -65,7 +66,7 @@ export default function DashboardPage() {
     setUserName(getStoredUserName());
 
     try {
-      const [storesRes, productsRes] = await Promise.all([
+      const [storesRes, productsRes, ticketsRes] = await Promise.all([
         fetch(`${API}/stores`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}` },
@@ -76,6 +77,10 @@ export default function DashboardPage() {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
+        }),
+        fetch(`${API}/tickets/pending-count`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
 
@@ -89,6 +94,14 @@ export default function DashboardPage() {
       ]);
       setProfile({ stores: storesData, products: productsData });
       setStaffStoreIds(storesData?.[0] ? [storesData[0].id] : []);
+
+      // Non bloquant : si le décompte des tickets échoue, le tableau de
+      // bord reste utilisable, la case affiche simplement 0.
+      if (ticketsRes.ok) {
+        const ticketsData = await ticketsRes.json();
+        setPendingTicketsCount(Number(ticketsData?.count ?? 0));
+      }
+
       setLoading(false);
     } catch (err: any) {
       setError(err.message || "Une erreur est survenue lors du chargement des données.");
@@ -216,6 +229,17 @@ export default function DashboardPage() {
     (product: any) => getStockStatus(product) === "LOW_STOCK",
   ).length;
 
+  // Le sens du compteur dépend du rôle (voir TicketsService.countOpenTicketsForUser
+  // côté backend) : mes demandes en attente (CASHIER), celles qui m'attendent
+  // (MANAGER), ou l'ensemble des tickets en attente sur mes magasins (ADMIN).
+  const ticketsCardTitle = role === "CASHIER" ? "Mes tickets en attente" : "Tickets en attente";
+  const ticketsCardDescription =
+    role === "CASHIER"
+      ? "Vos demandes pas encore traitées"
+      : role === "MANAGER"
+        ? "Tickets qui vous sont adressés"
+        : "Tickets à traiter sur vos magasins";
+
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50">
@@ -265,10 +289,10 @@ export default function DashboardPage() {
             accent="indigo"
           />
           <DashboardCard
-            title="Produits suivis"
-            value={profile?.products?.length || 0}
-            description="Articles actuellement importés"
-            icon={Package}
+            title={ticketsCardTitle}
+            value={pendingTicketsCount}
+            description={ticketsCardDescription}
+            icon={Ticket}
             accent="violet"
           />
           <DashboardCard

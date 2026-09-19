@@ -458,7 +458,7 @@ function ProductsContent() {
           </div>
           <div className="space-x-4">
             <Button variant="outline" onClick={() => router.push('/dashboard')}>← Tableau de bord</Button>
-            {currentEffectiveStoreId && role !== 'CASHIER' && (
+            {currentEffectiveStoreId && (
               <>
                 <Button
                   variant="outline"
@@ -476,15 +476,17 @@ function ProductsContent() {
                   <FileText className="h-4 w-4 mr-2" />
                   {isExportingPdf ? 'Génération…' : 'Exporter en PDF'}
                 </Button>
-                <Button
-                  onClick={() => {
-                    setSimilarProducts([]);
-                    setFormError('');
-                    setIsModalOpen(true);
-                  }}
-                >
-                  + Ajouter un Produit
-                </Button>
+                {role !== 'CASHIER' && (
+                  <Button
+                    onClick={() => {
+                      setSimilarProducts([]);
+                      setFormError('');
+                      setIsModalOpen(true);
+                    }}
+                  >
+                    + Ajouter un Produit
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -500,7 +502,7 @@ function ProductsContent() {
         <div className="mb-6 max-w-md">
           <Input
             type="text"
-            placeholder="🔍 Rechercher par désignation, description ou référence SKU..."
+            placeholder="Rechercher par désignation, description ou référence SKU..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white shadow-sm h-10 border-gray-200 focus:border-blue-500"

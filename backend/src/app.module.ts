@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { ReportsModule } from './reports/reports.module';
 import { ReceiptsModule } from './receipts/receipts.module';
+import { TicketsModule } from './tickets/tickets.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ReceiptsModule } from './receipts/receipts.module';
     AuditLogModule,
     ReportsModule,
     ReceiptsModule,
+    TicketsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

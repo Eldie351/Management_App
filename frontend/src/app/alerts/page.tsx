@@ -7,12 +7,18 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingDots } from '@/components/ui/loading_dots';
 import { getStockLabel, getStockStatus } from '@/lib/stock-status';
+import { getStoredUserRole, hasAccess } from '@/lib/auth';
 
 export default function AlertsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRole(getStoredUserRole());
+  }, []);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -117,6 +123,17 @@ export default function AlertsPage() {
                           </span>
                           <span className="text-sm font-medium">Stock : {product.quantity} unité(s)</span>
                           <span className="text-xs text-slate-500">Seuil minimum : {product.minimumStock ?? 5}</span>
+                          {hasAccess(role as any, ['CASHIER', 'MANAGER']) && product.storeId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                router.push(`/tickets?storeId=${product.storeId}&productId=${product.id}`)
+                              }
+                            >
+                              Ouvrir un ticket
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -1,117 +1,82 @@
 # Documentation technique — Reports & Receipts
 
-Ce document décrit les ajouts effectués sur la branche `feature/reports-stats-prisma-nextjs` : composants frontend, endpoints backend et modèles Prisma recommandés.
+Ce document décrit les modules Rapports (`backend/src/reports/`) et Reçus (`backend/src/receipts/`) tels qu'implémentés actuellement.
 
-## Fichiers ajoutés / modifiés (principaux)
+## Fichiers concernés
 
 Frontend
-- frontend/src/components/ReportsStats.tsx — composant principal pour la page Rapports & Statistiques (Recharts + lucide-react)
-- frontend/src/app/stats/page.tsx — intégration du composant sur la page /stats
-- frontend/src/app/products/page.tsx — affichage du compteur total produits (X / Y)
-- frontend/src/app/receipts/page.tsx — page liste des reçus
-- frontend/src/app/receipts/[id]/page.tsx — page détail reçu
+- `frontend/src/components/ReportsStats.tsx` — composant principal pour la page Rapports & Statistiques (Recharts + lucide-react)
+- `frontend/src/app/stats/page.tsx` — page `/stats` (KPIs, séries de ventes, drill-down par jour)
+- `frontend/src/app/stats/cashiers/page.tsx` — statistiques dédiées aux caissiers
+- `frontend/src/app/receipts/page.tsx` — liste des reçus et impression de ticket
+- `frontend/src/app/receipts/[id]/page.tsx` — détail/réimpression d'un reçu
 
 Backend
-- backend/src/reports/reports.controller.ts
-- backend/src/reports/reports.service.ts
-- backend/src/reports/reports.module.ts
-- backend/src/receipts/receipts.controller.ts
-- backend/src/receipts/receipts.service.ts
-- backend/src/receipts/receipts.module.ts
-- backend/src/prisma/prisma.service.ts
-- backend/src/exchange-rate/exchange-rate-cron.service.ts (protection contre exécutions concurrentes)
+- `backend/src/reports/reports.controller.ts`, `reports.service.ts`, `reports.module.ts`
+- `backend/src/receipts/receipts.controller.ts`, `receipts.service.ts`, `receipts.module.ts`
 
-## Endpoints et shapes JSON
+## Il n'existe pas de modèle `Receipt` en base
 
-Rapports
-- GET /api/reports/kpis?start=ISO&end=ISO
-  - Response: { totalRevenue: number, inventoryValue: number, currency: string }
+Il n'y a pas de table `Receipt` dédiée dans `backend/prisma/schema.prisma`. Un "reçu" est simplement une **vente** (`model Sale`, avec ses `SaleItem`) : `ReceiptsService` interroge directement `prisma.sale.findMany()` / `findUnique()` et met en forme le résultat. Toute évolution du contenu d'un reçu (champs affichés, remise, etc.) passe donc par le modèle `Sale`, pas par un modèle séparé.
 
-- GET /api/reports/sales/series?period=week|month|year&start=ISO&end=ISO
-  - Response: [{ date: 'YYYY-MM-DD'|'YYYY-MM', amount: number }, ...]
+## Endpoints
 
-- GET /api/reports/sales/day?date=YYYY-MM-DD
-  - Response: [{ id, productName, quantity, time, amount }, ...]
+Rapports (`/reports`, JWT requis, rôles ADMIN/MANAGER/CASHIER selon la route)
+- `GET /reports/kpis?start=ISO&end=ISO&storeId=?`
+  - Réponse : `{ totalRevenue: number, inventoryValue: number, currency: string }`
+  - `totalRevenue` = somme des ventes dont `createdAt` est dans `[start, end]`.
+  - `inventoryValue` = valeur du stock **à la date `end`**, reconstituée à partir des mouvements de stock (`StockMovement`, delta signé) cumulés jusqu'à cette date pour chaque produit, valorisée au prix de vente **actuel** du produit (il n'y a pas d'historique des prix en base — seule la quantité est reconstituée dans le temps).
+- `GET /reports/sales-series` (alias `GET /reports/sales/series`) `?period=week|month|year&start=ISO&end=ISO&storeId=?`
+  - Réponse : `[{ date: 'YYYY-MM-DD' | 'YYYY-MM', amount: number }, ...]`
+- `GET /reports/sales/day?date=YYYY-MM-DD&storeId=?`
+  - Réponse : `[{ id, productName, quantity, time, amount }, ...]`
+- `GET /reports/stores-perf` (alias `GET /reports/stores/performance`) `?start=ISO&end=ISO&storeId=?`
+  - Réponse : `[{ storeId, storeName, salesAmount, salesCount }, ...]`
+- `GET /reports/cashiers/daily-products?start=ISO&end=ISO&storeId=?&userId=?`
+  - Réponse : détail des ventes groupées par caissier, avec stock restant par produit.
 
-- GET /api/reports/stores?start=ISO&end=ISO
-  - Response: [{ storeId, storeName, salesAmount }, ...]
+Toutes les routes acceptent aussi `startDate`/`endDate` comme alias de `start`/`end`.
 
-Receipts
-- GET /receipts
-- GET /receipts/store/:storeId
-- GET /receipts/:id
-  - Receipt response (example):
+Reçus (`/receipts`, JWT requis, rôles ADMIN/MANAGER/CASHIER)
+- `GET /receipts` — reçus de tous les magasins autorisés de l'utilisateur (jamais tous les magasins de l'application).
+- `GET /receipts/store/:storeId` — reçus d'un magasin précis (accès vérifié).
+- `GET /receipts/:id`
+  - Réponse (exemple) :
+  ```json
   {
-    id: string,
-    createdAt: string,
-    supplierName?: string,
-    storeId?: string,
-    totalAmount: number,
-    currency?: string,
-    items: [{ id, productId?, productName?, quantity: number, unitPrice: number }]
+    "id": 12,
+    "invoiceNumber": "FAC-1234567890",
+    "createdAt": "2026-08-01T10:00:00Z",
+    "storeId": 1,
+    "totalAmount": 4200,
+    "subtotal": 4200,
+    "discountType": null,
+    "discountAmount": 0,
+    "items": [{ "id": 1, "productId": 3, "product": { "name": "Sac" }, "quantity": 21, "unitPrice": 42, "total": 882 }]
   }
+  ```
 
 ## Exemples d'appels (curl)
 
-- KPIs
 ```bash
-curl "${API}/api/reports/kpis?start=2026-08-01T00:00:00Z&end=2026-08-07T23:59:59Z" -H "Authorization: Bearer <token>"
-```
+# KPIs
+curl "${API}/reports/kpis?start=2026-08-01T00:00:00Z&end=2026-08-07T23:59:59Z" -H "Authorization: Bearer <token>"
 
-- Sales series
-```bash
-curl "${API}/api/reports/sales/series?period=week&start=2026-08-03T00:00:00Z&end=2026-08-09T23:59:59Z" -H "Authorization: Bearer <token>"
-```
+# Séries de ventes
+curl "${API}/reports/sales-series?period=week&start=2026-08-03T00:00:00Z&end=2026-08-09T23:59:59Z" -H "Authorization: Bearer <token>"
 
-- Receipts list
-```bash
+# Liste des reçus
 curl "${API}/receipts" -H "Authorization: Bearer <token>"
-```
-
-## Snippet Prisma (schema.prisma) recommandé pour Receipts
-
-```prisma
-model Receipt {
-  id           String       @id @default(cuid())
-  createdAt    DateTime     @default(now())
-  supplierName String?
-  storeId      String?
-  totalAmount  Decimal      @default(0)
-  currency     String?      @default("XOF")
-  items        ReceiptItem[]
-}
-
-model ReceiptItem {
-  id          String   @id @default(cuid())
-  receiptId   String
-  productId   String?
-  productName String?
-  quantity    Int
-  unitPrice   Decimal
-  receipt     Receipt  @relation(fields: [receiptId], references: [id])
-}
-```
-
-Après avoir ajouté ce modèle :
-```bash
-cd backend
-npx prisma generate
-npx prisma migrate dev --name add_receipts
 ```
 
 ## Points d'attention
 
-- Les requêtes SQL raw dans `reports.service.ts` utilisent des fonctions Postgres (`date_trunc`, `to_char`) — si vous utilisez MySQL adaptez ces queries.
-- Les montants sont renvoyés sous forme `number` (conversion depuis Decimal) pour éviter des problèmes JSON côté frontend.
-- Protégez les endpoints via des Guards (JWT) en production.
-- Limitez la période d'agrégation pour éviter des requêtes lourdes.
+- Les montants sont renvoyés en `number` (conversion depuis `Decimal`/`Float` Prisma) pour éviter des problèmes de sérialisation JSON côté frontend.
+- Toutes les routes sont protégées par JWT et filtrées par magasin possédé/assigné (`assertStoreAccess` / `buildStoreIdWhere`, voir `backend/src/common/utils/store-access.util.ts`) — un ADMIN ne voit que ses propres magasins, jamais ceux d'un autre commerce.
+- Le lieu affiché sur un reçu imprimé est celui renseigné sur la fiche magasin (`Store.location`), affiché tel quel — le frontend n'ajoute plus de mention de pays automatique.
 
-## Tests / Validation
+## Tests / Validation manuelle
 
-- Vérifier la page `/stats` : testez changement de période, drill-down sur un jour, et clic sur part du donut (redirige vers /stores/[id]/stats).
-- Vérifier `/products` : le compteur doit afficher `X / Y`.
-- Vérifier `/receipts` et `/receipts/:id`.
-
----
-
-Si vous voulez que j'ajoute une section supplémentaire (ex: diagramme d'architecture, diagramme de flux, checklist de déploiement CI/CD), je peux la préparer et la pousser sur la même branche.
+- `/stats` : changer de période (semaine/mois/année), naviguer sur une période passée où des ventes existent et vérifier que le chiffre d'affaires **et** la valeur d'inventaire changent en conséquence, drill-down sur un jour.
+- `/products` : le compteur doit afficher `X / Y` ; créer un produit dont le nom reprend les mêmes mots qu'un produit existant dans un ordre différent doit afficher un avertissement (pas un blocage).
+- `/receipts` et `/receipts/:id` : impression d'un ticket, vérifier que le lieu affiché correspond à celui du magasin.

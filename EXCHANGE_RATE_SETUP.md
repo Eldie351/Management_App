@@ -1,6 +1,6 @@
 # Exchange Rate System Setup Guide
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Backend Configuration
 
@@ -16,7 +16,6 @@ OPENEXCHANGERATES_API_KEY=your_free_api_key_here
 
 # JWT
 JWT_SECRET=your_jwt_secret_here
-JWT_EXPIRATION=7d
 ```
 
 **Get your free API key:**
@@ -40,9 +39,9 @@ npm run start:dev
 **Expected output:**
 ```
 [NestFactory] Starting NestJS application...
-🚀 Initializing Exchange Rate Cron Service...
-✅ Exchange rates cached successfully
-✅ Cron job scheduled: Updates every 6 hours
+Initializing Exchange Rate Cron Service...
+Exchange rates cached successfully
+Cron job scheduled: Updates every 6 hours
 [NestApplication] Nest application successfully started
 ```
 
@@ -66,11 +65,13 @@ npm run dev
 
 ---
 
-## 📊 API Endpoints
+## API Endpoints
+
+Toutes les routes ci-dessous requièrent un header `Authorization: Bearer <token>` (obtenu via `POST /auth/login`) ; `/refresh` requiert en plus le rôle ADMIN.
 
 ### Get All Exchange Rates
 ```bash
-curl http://localhost:3001/api/exchange-rates
+curl http://localhost:3001/api/exchange-rates -H "Authorization: Bearer <token>"
 ```
 
 **Response:**
@@ -91,7 +92,7 @@ curl http://localhost:3001/api/exchange-rates
 
 ### Convert Amount
 ```bash
-curl "http://localhost:3001/api/exchange-rates/convert?amount=100&from=USD&to=XOF"
+curl "http://localhost:3001/api/exchange-rates/convert?amount=100&from=USD&to=XOF" -H "Authorization: Bearer <token>"
 ```
 
 **Response:**
@@ -105,12 +106,12 @@ curl "http://localhost:3001/api/exchange-rates/convert?amount=100&from=USD&to=XO
 
 ### Get Specific Rate
 ```bash
-curl "http://localhost:3001/api/exchange-rates/info?from=USD&to=EUR"
+curl "http://localhost:3001/api/exchange-rates/info?from=USD&to=EUR" -H "Authorization: Bearer <token>"
 ```
 
 ### Manual Refresh
 ```bash
-curl -X POST http://localhost:3001/api/exchange-rates/refresh
+curl -X POST http://localhost:3001/api/exchange-rates/refresh -H "Authorization: Bearer <admin-token>"
 ```
 
 **Response:**
@@ -122,7 +123,7 @@ curl -X POST http://localhost:3001/api/exchange-rates/refresh
 
 ---
 
-## 🔧 Configuration Options
+## Configuration Options
 
 ### Change Update Interval
 
@@ -158,7 +159,7 @@ const SUPPORTED_CURRENCIES = ['XOF', 'EUR', 'USD', 'GBP', 'NGN', 'JPY', 'CHF'];
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Issue: "Invalid API Key"
 **Solution:**
@@ -179,7 +180,7 @@ psql management_app -c "SELECT * FROM \"ExchangeRate\" LIMIT 5;"
 ### Issue: "No exchange rate found for X to Y"
 **Solution:**
 1. Ensure both currencies are in `SUPPORTED_CURRENCIES`
-2. Manually refresh: `POST /api/exchange-rates/refresh`
+2. Manually refresh (ADMIN token required): `POST /api/exchange-rates/refresh`
 3. Check logs for API errors
 
 ### Issue: Database migration fails
@@ -194,7 +195,7 @@ npx prisma migrate dev --name add_exchange_rates
 
 ---
 
-## 📈 Architecture Diagram
+## Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -253,7 +254,7 @@ npx prisma migrate dev --name add_exchange_rates
 
 ---
 
-## 🔄 Data Flow Example
+## Data Flow Example
 
 **User selects EUR from dropdown:**
 
@@ -275,7 +276,7 @@ npx prisma migrate dev --name add_exchange_rates
 
 ---
 
-## 📋 Checklist
+## Checklist
 
 - [ ] Created `.env` file with API key
 - [ ] Ran `npm run prisma:migrate` in backend
@@ -288,7 +289,7 @@ npx prisma migrate dev --name add_exchange_rates
 
 ---
 
-## 💡 Pro Tips
+## Pro Tips
 
 1. **Free Tier Limitations:**
    - Limited API calls per month
@@ -312,7 +313,7 @@ npx prisma migrate dev --name add_exchange_rates
 
 ---
 
-## 📚 Additional Resources
+## Additional Resources
 
 - **OpenExchangeRates API:** https://openexchangerates.org/
 - **NestJS Documentation:** https://docs.nestjs.com/
@@ -322,4 +323,4 @@ npx prisma migrate dev --name add_exchange_rates
 
 **Architecture Pattern:** Cache Database + Async Updates  
 **Industry Use:** Wise, Revolut, Stripe, PayPal  
-**Status:** ✅ Production Ready
+**Status:** Production Ready

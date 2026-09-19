@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
+import { getAllowedStoreIds } from '../common/utils/store-access.util';
 
 @Injectable()
 export class UsersService {
@@ -202,6 +203,30 @@ export class UsersService {
         createdById: true,
       },
     });
+  }
+
+  /**
+   * Pour la page Profil : liste, pour chaque magasin auquel l'utilisateur a
+   * accès (possédé ou assigné), l'ensemble du personnel de ce magasin
+   * (ADMIN, MANAGER, CASHIER confondus) — utile à un CASHIER/MANAGER pour
+   * savoir à qui adresser un ticket, par exemple.
+   */
+  async findColleaguesForUser(user: any) {
+    const storeIds = getAllowedStoreIds(user);
+    if (storeIds.length === 0) return [];
+
+    const stores = await this.prisma.store.findMany({
+      where: { id: { in: storeIds } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    return Promise.all(
+      stores.map(async (store) => ({
+        store,
+        staff: await this.findByStore(store.id),
+      })),
+    );
   }
 
   /**

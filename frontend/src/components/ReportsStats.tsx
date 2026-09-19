@@ -40,7 +40,7 @@ type StorePerf = {
 
 type Period = 'week' | 'month' | 'year';
 
-const COLORS = ['#4F46E5', '#06B6D4', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6'];
+const COLORS = ['#4F3AA0', '#22AEA0', '#CE6A6B', '#AF2589', '#211A44', '#AF9FDD'];
 
 export default function ReportsStats() {
   const router = useRouter();
@@ -231,18 +231,18 @@ export default function ReportsStats() {
           <div className="flex items-center gap-2">
             <div className="text-sm text-slate-500 mr-2">Période</div>
             <div className="flex bg-slate-100 rounded-md overflow-hidden">
-              <button className={`px-3 py-1 ${period === 'week' ? 'bg-white text-slate-900' : 'text-slate-600'}`} onClick={() => setPeriod('week')}>Semaine</button>
-              <button className={`px-3 py-1 ${period === 'month' ? 'bg-white text-slate-900' : 'text-slate-600'}`} onClick={() => setPeriod('month')}>Mois</button>
-              <button className={`px-3 py-1 ${period === 'year' ? 'bg-white text-slate-900' : 'text-slate-600'}`} onClick={() => setPeriod('year')}>Année</button>
+              <button className={`btn-tactile px-3 py-1 ${period === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`} onClick={() => setPeriod('week')}>Semaine</button>
+              <button className={`btn-tactile px-3 py-1 ${period === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`} onClick={() => setPeriod('month')}>Mois</button>
+              <button className={`btn-tactile px-3 py-1 ${period === 'year' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`} onClick={() => setPeriod('year')}>Année</button>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="text-sm text-slate-500 hidden md:block">{label}</div>
             <div className="flex items-center gap-2">
-              <button className="px-2 py-1 bg-slate-100 rounded" onClick={shiftBack}>◀</button>
-              <button className="px-2 py-1 bg-slate-100 rounded" onClick={goToToday}>Aujourd'hui</button>
-              <button className="px-2 py-1 bg-slate-100 rounded" onClick={shiftForward}>▶</button>
+              <button className="btn-tactile px-2 py-1 bg-slate-100 rounded hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_12%)]" onClick={shiftBack}>◀</button>
+              <button className="btn-tactile px-2 py-1 bg-slate-100 rounded hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_12%)]" onClick={goToToday}>Aujourd'hui</button>
+              <button className="btn-tactile px-2 py-1 bg-slate-100 rounded hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_12%)]" onClick={shiftForward}>▶</button>
             </div>
           </div>
         </div>
@@ -260,7 +260,7 @@ export default function ReportsStats() {
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis tickFormatter={(v) => `${(v as number) >= 1000 ? (v as number) / 1000 + 'k' : v}`} />
                 <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
-                <Bar dataKey="amount" fill="#4F46E5" onClick={(d: any) => {
+                <Bar dataKey="amount" fill="#4F3AA0" onClick={(d: any) => {
                   if (d && d.payload && d.payload.date) {
                     setSelectedDay(d.payload.date as string);
                     // scroll to details panel
@@ -287,7 +287,7 @@ export default function ReportsStats() {
                   <div className="font-medium">{selectedDay}</div>
                 </div>
                 <div>
-                  <button className="text-sm text-slate-500" onClick={() => setSelectedDay(null)}>Fermer</button>
+                  <button className="btn-tactile rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-200 hover:text-slate-700" onClick={() => setSelectedDay(null)}>Fermer</button>
                 </div>
               </div>
 

@@ -38,6 +38,17 @@ export class UsersController {
     return this.usersService.findProfileWithStores(userId);
   }
 
+  /**
+   * Personnel des magasins auxquels l'utilisateur connecté a accès (tous
+   * rôles confondus) — affiché sur la page Profil pour un CASHIER/MANAGER,
+   * qui n'ont pas accès à /users/staff (réservé à la gestion par l'ADMIN).
+   */
+  @Get('colleagues')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  async getColleagues(@CurrentUser() user: any) {
+    return this.usersService.findColleaguesForUser(user);
+  }
+
   // --- Gestion du personnel par l'ADMIN -----------------------------------
 
   /**

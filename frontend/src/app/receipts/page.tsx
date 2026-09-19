@@ -326,7 +326,8 @@ function ReceiptsContent() {
   const getCashierName = (r: Receipt) => {
     if (typeof r.cashier === 'string') return r.cashier;
     if (typeof r.cashier === 'object' && r.cashier) {
-      return r.cashier.name || r.cashier.fullName || r.cashier.username;
+      const name = r.cashier.name || r.cashier.fullName || r.cashier.username;
+      if (name) return name;
     }
     return (
       r.user?.name ||
@@ -374,11 +375,7 @@ function ReceiptsContent() {
     const storeName = getStoreName(sale);
     const storeLocation = storeObj?.location || storeObj?.address || '';
     const storePhone = storeObj?.phone || 'N/A';
-    const formattedLocation = storeLocation
-      ? storeLocation.includes('Bénin')
-        ? storeLocation
-        : `${storeLocation}, Bénin`
-      : '';
+    const formattedLocation = storeLocation;
     const currency = storeObj?.currency || sale.currency || selectedStore?.currency || 'XOF';
     const invoiceNum = getReceiptNumber(sale);
     const dateFormatted = sale.createdAt || sale.date
@@ -765,7 +762,7 @@ function ReceiptsContent() {
         const storeName = getStoreName(selectedReceipt);
         const storeLocation = storeObj?.location || storeObj?.address || '';
         const storePhone = storeObj?.phone || 'N/A';
-        const formattedLocation = storeLocation ? (storeLocation.includes('Bénin') ? storeLocation : `${storeLocation}, Bénin`) : '';
+        const formattedLocation = storeLocation;
         const currency = storeObj?.currency || selectedReceipt.currency || selectedStore?.currency || 'XOF';
         const items = getItemsList(selectedReceipt);
         const subtotal = getSubtotalAmount(selectedReceipt);

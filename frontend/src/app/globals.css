@@ -4,6 +4,125 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Palette de marque. L'encre indigo (#211A44) est la couleur principale de
+ * l'application : on retinte les échelles Tailwind déjà massivement
+ * utilisées dans le code (blue, indigo, teal, rose, red, green,
+ * emerald, pink) plutôt que de réécrire chaque classe utilitaire.
+ * "indigo" et "blue" pointent vers la même rampe violette (encre) pour
+ * unifier les deux bleus qui coexistaient dans l'app ; "teal" devient un
+ * cyan lumineux (accent "lueur"), "pink" un magenta vif (accent tentacule),
+ * "red" reprend "rose" (danger) et "green"/"emerald" reprennent "sage"
+ * (succès). #211A44 correspond exactement à indigo-900.
+ */
+@theme {
+  --color-blue-50: #f5f3fb;
+  --color-blue-100: #eae6f6;
+  --color-blue-200: #d0c8ec;
+  --color-blue-300: #af9fdd;
+  --color-blue-400: #8a72c9;
+  --color-blue-500: #6b4fb3;
+  --color-blue-600: #4f3aa0;
+  --color-blue-700: #3c2d80;
+  --color-blue-800: #2b2260;
+  --color-blue-900: #211a44;
+  --color-blue-950: #140f2b;
+
+  --color-indigo-50: #f5f3fb;
+  --color-indigo-100: #eae6f6;
+  --color-indigo-200: #d0c8ec;
+  --color-indigo-300: #af9fdd;
+  --color-indigo-400: #8a72c9;
+  --color-indigo-500: #6b4fb3;
+  --color-indigo-600: #4f3aa0;
+  --color-indigo-700: #3c2d80;
+  --color-indigo-800: #2b2260;
+  --color-indigo-900: #211a44;
+  --color-indigo-950: #140f2b;
+
+  --color-teal-50: #eefcfb;
+  --color-teal-100: #d4f7f4;
+  --color-teal-200: #a9eee7;
+  --color-teal-300: #78e0d6;
+  --color-teal-400: #45c9bc;
+  --color-teal-500: #22aea0;
+  --color-teal-600: #178f84;
+  --color-teal-700: #14726a;
+  --color-teal-800: #145b55;
+  --color-teal-900: #124a46;
+  --color-teal-950: #072b29;
+
+  --color-rose-50: #f9f6f6;
+  --color-rose-100: #f4ecec;
+  --color-rose-200: #e8d4d4;
+  --color-rose-300: #ddb6b7;
+  --color-rose-400: #d49192;
+  --color-rose-500: #cd6566;
+  --color-rose-600: #ce6a6b;
+  --color-rose-700: #a43233;
+  --color-rose-800: #832b2b;
+  --color-rose-900: #662324;
+  --color-rose-950: #431919;
+
+  --color-red-50: #f9f6f6;
+  --color-red-100: #f4ecec;
+  --color-red-200: #e8d4d4;
+  --color-red-300: #ddb6b7;
+  --color-red-400: #d49192;
+  --color-red-500: #cd6566;
+  --color-red-600: #ce6a6b;
+  --color-red-700: #a43233;
+  --color-red-800: #832b2b;
+  --color-red-900: #662324;
+  --color-red-950: #431919;
+
+  --color-green-50: #f7f8f7;
+  --color-green-100: #eef1ef;
+  --color-green-200: #d9e2db;
+  --color-green-300: #bed3c3;
+  --color-green-400: #a4c1ab;
+  --color-green-500: #83af8e;
+  --color-green-600: #639c71;
+  --color-green-700: #53835f;
+  --color-green-800: #44694d;
+  --color-green-900: #37533e;
+  --color-green-950: #253729;
+
+  --color-emerald-50: #f7f8f7;
+  --color-emerald-100: #eef1ef;
+  --color-emerald-200: #d9e2db;
+  --color-emerald-300: #bed3c3;
+  --color-emerald-400: #a4c1ab;
+  --color-emerald-500: #83af8e;
+  --color-emerald-600: #639c71;
+  --color-emerald-700: #53835f;
+  --color-emerald-800: #44694d;
+  --color-emerald-900: #37533e;
+  --color-emerald-950: #253729;
+
+  --color-pink-50: #fdf2fb;
+  --color-pink-100: #fbe0f6;
+  --color-pink-200: #f6c0ec;
+  --color-pink-300: #ee94dc;
+  --color-pink-400: #e264c4;
+  --color-pink-500: #cf3da8;
+  --color-pink-600: #af2589;
+  --color-pink-700: #8a1d6d;
+  --color-pink-800: #6b1957;
+  --color-pink-900: #551548;
+  --color-pink-950: #300a29;
+
+  /* Couleurs de marque brutes, pour un usage ponctuel hors classes utilitaires */
+  --brand-ink: #211a44;
+  --brand-ink-deep: #140f2b;
+  --brand-violet: #4f3aa0;
+  --brand-blue: #4c6fff;
+  --brand-blue-deep: #1e40af;
+  --brand-teal: #22aea0;
+  --brand-magenta: #af2589;
+  --brand-rose: #ce6a6b;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -55,32 +174,32 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: #4f3aa0;
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --secondary: #f5f3fb;
+  --secondary-foreground: #211a44;
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --accent: #eae6f6;
+  --accent-foreground: #211a44;
+  --destructive: #ce6a6b;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --ring: #4f3aa0;
+  --chart-1: #4f3aa0;
+  --chart-2: #22aea0;
+  --chart-3: #ce6a6b;
+  --chart-4: #af2589;
+  --chart-5: #af9fdd;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar: #211a44;
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: #4f3aa0;
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: #eae6f6;
+  --sidebar-accent-foreground: #211a44;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #4f3aa0;
 }
 
 .dark {
@@ -90,31 +209,31 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: #8a72c9;
+  --primary-foreground: #140f2b;
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  --destructive: #d49192;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  --ring: #8a72c9;
+  --chart-1: #8a72c9;
+  --chart-2: #45c9bc;
+  --chart-3: #d49192;
+  --chart-4: #e264c4;
+  --chart-5: #af9fdd;
+  --sidebar: #140f2b;
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: #4f3aa0;
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: #4f3aa0;
 }
 
 @layer base {
@@ -162,5 +281,50 @@ html {
   .animate-float,
   .animate-float-delayed {
     animation: none;
+  }
+}
+
+/*
+ * Tentacules d'encre : formes organiques utilisées en arrière-plan décoratif
+ * (voir components/TentacleField.tsx). Dérive lente en rotation/échelle,
+ * jamais synchronisée pour éviter un effet "pulse" artificiel.
+ */
+@keyframes tentacle-drift-1 {
+  0%, 100% { transform: rotate(0deg) translate(0, 0) scale(1); }
+  50% { transform: rotate(7deg) translate(18px, -14px) scale(1.05); }
+}
+@keyframes tentacle-drift-2 {
+  0%, 100% { transform: rotate(0deg) translate(0, 0) scale(1); }
+  50% { transform: rotate(-6deg) translate(-16px, 18px) scale(1.04); }
+}
+@keyframes tentacle-drift-3 {
+  0%, 100% { transform: rotate(0deg) scale(1); opacity: 0.9; }
+  50% { transform: rotate(5deg) scale(1.08); opacity: 0.65; }
+}
+.tentacle-drift-1 { animation: tentacle-drift-1 26s ease-in-out infinite; transform-origin: 50% 50%; }
+.tentacle-drift-2 { animation: tentacle-drift-2 32s ease-in-out infinite; transform-origin: 50% 50%; }
+.tentacle-drift-3 { animation: tentacle-drift-3 22s ease-in-out infinite; transform-origin: 50% 50%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tentacle-drift-1,
+  .tentacle-drift-2,
+  .tentacle-drift-3 {
+    animation: none;
+  }
+}
+
+/*
+ * Bouton "tactile" pour les <button> bruts (hors composant shadcn) : shade
+ * sombre au survol via color-mix, petit tassement au clic.
+ */
+.btn-tactile {
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease, box-shadow 150ms ease;
+}
+.btn-tactile:active {
+  transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-tactile:active {
+    transform: none;
   }
 }

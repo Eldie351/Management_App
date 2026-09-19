@@ -15,7 +15,7 @@ export class ExchangeRateCronService implements OnApplicationBootstrap, OnModule
   // la connexion pg est encore en train de s'établir (source du warning
   // "client.query() when the client is already executing a query").
   async onApplicationBootstrap() {
-    this.logger.log('🚀 Initializing Exchange Rate Cron Service...');
+    this.logger.log('Initializing Exchange Rate Cron Service...');
 
     // BUGFIX : `onApplicationBootstrap` est attendu par Nest avant de
     // considérer l'application comme démarrée (elle ne se met à écouter
@@ -45,7 +45,7 @@ export class ExchangeRateCronService implements OnApplicationBootstrap, OnModule
       }
       this.isRunning = true;
       try {
-        this.logger.log('⏱️ Running scheduled exchange rate update...');
+        this.logger.log('Running scheduled exchange rate update...');
         await this.exchangeRateService.fetchAndCacheExchangeRates();
       } catch (error) {
         this.logger.error(`Scheduled exchange rate update failed: ${String(error)}`);
@@ -54,7 +54,7 @@ export class ExchangeRateCronService implements OnApplicationBootstrap, OnModule
       }
     }, SIX_HOURS);
 
-    this.logger.log('✅ Cron job scheduled: Updates every 6 hours');
+    this.logger.log('Cron job scheduled: Updates every 6 hours');
   }
 
   onModuleDestroy() {

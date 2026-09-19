@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import Reveal from '@/components/Reveal';
 import BrowserFrame from '@/components/BrowserFrame';
 import Lightbox from '@/components/Lightbox';
+import TentacleField from '@/components/TentacleField';
 import {
   Boxes,
   Warehouse,
@@ -33,7 +34,7 @@ const featureGrid = [
   },
   {
     icon: Package,
-    accent: 'bg-violet-50 text-violet-600',
+    accent: 'bg-teal-50 text-teal-600',
     title: 'Suivi de stock en temps réel',
     description: 'Chaque vente met à jour la quantité disponible instantanément, magasin par magasin.',
   },
@@ -51,7 +52,7 @@ const featureGrid = [
   },
   {
     icon: ReceiptText,
-    accent: 'bg-blue-50 text-blue-600',
+    accent: 'bg-pink-50 text-pink-600',
     title: 'Reçus & historique',
     description: 'Chaque vente génère un reçu numéroté, consultable et imprimable à tout moment.',
   },
@@ -69,7 +70,7 @@ const featureGrid = [
   },
   {
     icon: FileSpreadsheet,
-    accent: 'bg-teal-50 text-teal-600',
+    accent: 'bg-violet-50 text-violet-600',
     title: 'Export Excel & PDF',
     description: "Sortez vos données d'inventaire et vos rapports en un clic pour les partager ou les archiver.",
   },
@@ -135,11 +136,11 @@ export default function LandingPage() {
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/60 bg-white/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center px-6 py-3.5">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-10 items-center justify-center rounded-lg bg-indigo-500 text-white">
+            <span className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-pink-600 text-white shadow-md shadow-indigo-200 transition-transform duration-300 hover:scale-105 hover:rotate-3">
               <Boxes size={22} />
             </span>
             <span className="text-2xl font-bold tracking-tight text-slate-900">
-              Octo<span className="text-indigo-600">Stock</span>
+              Octo<span className="text-[var(--brand-blue-deep)]">Stock</span>
             </span>
           </div>
 
@@ -148,9 +149,10 @@ export default function LandingPage() {
               <a
                 key={link.href}
                 href={link.href}
-                className="text-sm font-medium text-slate-500 transition-colors hover:text-indigo-600"
+                className="group relative text-sm font-medium text-slate-500 transition-colors hover:text-indigo-600"
               >
                 {link.label}
+                <span className="absolute -bottom-1 left-0 h-px w-0 bg-indigo-500 transition-all duration-300 group-hover:w-full" />
               </a>
             ))}
           </nav>
@@ -159,7 +161,7 @@ export default function LandingPage() {
             <Button variant="ghost" onClick={() => router.push('/login')} className="font-medium">
               Connexion
             </Button>
-            <Button onClick={() => router.push('/register')} className="bg-indigo-600 font-medium hover:bg-indigo-700">
+            <Button onClick={() => router.push('/register')} className="font-medium">
               Créer un compte
             </Button>
           </div>
@@ -168,12 +170,7 @@ export default function LandingPage() {
 
       {/* HERO */}
       <section className="relative overflow-hidden">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-40 -z-10 flex justify-center blur-3xl"
-        >
-          <div className="aspect-[1200/500] w-[1200px] bg-gradient-to-tr from-indigo-200 via-violet-100 to-transparent opacity-60" />
-        </div>
+        <TentacleField className="-z-10" />
 
         <div className="mx-auto max-w-5xl px-6 pt-16 pb-8 text-center md:pt-24">
           <div className="animate-in fade-in slide-in-from-bottom-3 duration-700">
@@ -194,7 +191,7 @@ export default function LandingPage() {
             <Button
               size="lg"
               onClick={() => router.push('/register')}
-              className="h-12 w-full bg-indigo-600 text-base font-semibold shadow-md shadow-indigo-200 transition-transform hover:scale-[1.02] hover:bg-indigo-700 sm:w-56"
+              className="h-12 w-full text-base font-semibold shadow-md shadow-indigo-200 transition-transform hover:scale-[1.02] sm:w-56"
             >
               Démarrer gratuitement
               <ArrowRight className="size-4" />
@@ -445,13 +442,14 @@ export default function LandingPage() {
       {/* CTA BANNER */}
       <section className="mx-auto max-w-6xl px-6 py-20">
         <Reveal>
-          <div className="relative overflow-hidden rounded-3xl bg-[#12142B] px-8 py-16 text-center">
+          <div className="relative overflow-hidden rounded-3xl bg-[#211A44] px-8 py-16 text-center">
+            <TentacleField variant="dark" />
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-indigo-500/20 via-transparent to-violet-500/20"
+              className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-indigo-500/20 via-transparent to-pink-500/20"
             />
             <div className="relative">
-              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-300">
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-teal-300">
                 <Users className="size-3.5" />
                 Pour toute votre équipe
               </span>
@@ -478,11 +476,11 @@ export default function LandingPage() {
       <footer className="border-t border-slate-200/60 bg-white py-10">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-6 sm:flex-row">
           <div className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-500 text-white">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-pink-600 text-white">
               <Boxes size={15} />
             </span>
             <span className="font-bold tracking-tight text-slate-900">
-              Octo<span className="text-indigo-600">Stock</span>
+              Octo<span className="text-[var(--brand-blue-deep)]">Stock</span>
             </span>
           </div>
           <p className="text-sm text-slate-400">© 2026 OctoStock. Tous droits réservés.</p>

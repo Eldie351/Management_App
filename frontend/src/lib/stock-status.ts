@@ -13,10 +13,10 @@ export const getStockStatus = (product: any): StockStatus => {
 export const getStockLabel = (status: StockStatus) => {
   switch (status) {
     case 'OUT_OF_STOCK':
-      return { label: '🔴 Rupture de stock', className: 'border-red-200 bg-red-50 text-red-700' };
+      return { label: 'Rupture de stock', className: 'border-red-200 bg-red-50 text-red-700' };
     case 'LOW_STOCK':
-      return { label: '🟠 Stock faible', className: 'border-orange-200 bg-orange-50 text-orange-700' };
+      return { label: 'Stock faible', className: 'border-orange-200 bg-orange-50 text-orange-700' };
     default:
-      return { label: '🟢 En stock', className: 'border-green-200 bg-green-50 text-green-700' };
+      return { label: 'En stock', className: 'border-green-200 bg-green-50 text-green-700' };
   }
 };

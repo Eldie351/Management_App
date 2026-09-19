@@ -16,8 +16,10 @@ import {
   ReceiptText,
   Boxes,
   LogOut,
+  Ticket,
 } from 'lucide-react';
 import { getStoredUserRole, getStoredUserName, getRoleLabel, clearUserSession, type AppRole } from '@/lib/auth';
+import TentacleField from '@/components/TentacleField';
 
 type NavItem = {
   href: string;
@@ -34,6 +36,7 @@ const adminItems: NavItem[] = [
   { href: '/staff', label: 'Staff', icon: Users, group: 'Gestion' },
   { href: '/stats', label: 'Rapports', icon: BarChart3, group: 'Gestion' },
   { href: '/alerts', label: 'Alertes', icon: AlertTriangle, group: 'Gestion' },
+  { href: '/tickets', label: 'Tickets', icon: Ticket, group: 'Gestion' },
   { href: '/profil', label: 'Profil', icon: User, group: 'Compte' },
 ];
 
@@ -44,6 +47,7 @@ const managerItems: NavItem[] = [
   { href: '/receipts', label: 'Transactions', icon: ReceiptText, group: 'Général' },
   { href: '/stats', label: 'Rapports', icon: BarChart3, group: 'Gestion' },
   { href: '/alerts', label: 'Alertes', icon: AlertTriangle, group: 'Gestion' },
+  { href: '/tickets', label: 'Tickets', icon: Ticket, group: 'Gestion' },
   { href: '/profil', label: 'Profil', icon: User, group: 'Compte' },
 ];
 
@@ -52,6 +56,8 @@ const cashierItems: NavItem[] = [
   { href: '/products', label: 'Produits', icon: Package, group: 'Général' },
   { href: '/sales', label: 'Ventes', icon: ShoppingCart, group: 'Général' },
   { href: '/receipts', label: 'Transactions', icon: ReceiptText, group: 'Général' },
+  { href: '/alerts', label: 'Alertes', icon: AlertTriangle, group: 'Suivi' },
+  { href: '/tickets', label: 'Tickets', icon: Ticket, group: 'Suivi' },
   { href: '/stats/cashiers', label: 'Stats Caissiers', icon: BarChart3, group: 'Suivi' },
   { href: '/profil', label: 'Profil', icon: User, group: 'Suivi' },
 ];
@@ -100,27 +106,29 @@ export default function Sidebar() {
   return (
     <>
       <aside
-        className={`fixed top-0 left-0 z-40 flex h-screen flex-col border-r border-white/5 bg-[#12142B] text-slate-300 shadow-xl transition-[width] duration-300 ease-in-out
+        className={`fixed top-0 left-0 z-40 flex h-screen flex-col overflow-hidden border-r border-white/5 bg-[#211A44] text-slate-300 shadow-xl transition-[width] duration-300 ease-in-out
           ${isOpen ? 'w-80' : 'w-24'}`}
       >
+        <TentacleField variant="dark" />
+
         {/* LOGO + COLLAPSE TOGGLE */}
-        <div className={`flex h-20 shrink-0 items-center border-b border-white/5 ${isOpen ? 'justify-between px-6' : 'justify-center px-2'}`}>
+        <div className={`relative z-10 flex h-20 shrink-0 items-center border-b border-white/5 ${isOpen ? 'justify-between px-6' : 'justify-center px-2'}`}>
           <div
             className={`flex items-center gap-3 overflow-hidden ${isOpen ? '' : 'justify-center'}`}
           >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-pink-500 text-white shadow-lg shadow-indigo-950/50 transition-transform duration-300 hover:scale-105 hover:rotate-3">
               <Boxes size={20} />
             </span>
             {isOpen && (
               <span className="truncate text-2xl font-bold tracking-tight text-white">
-                Octo<span className="text-indigo-400">Stock</span>
+                Octo<span className="text-[var(--brand-blue)]">Stock</span>
               </span>
             )}
           </div>
           {isOpen && (
             <button
               onClick={() => setIsOpen(false)}
-              className="rounded-md p-2 text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
+              className="btn-tactile rounded-md p-2 text-slate-400 hover:bg-white/10 hover:text-white"
               title="Réduire le menu"
             >
               <ChevronsLeft size={18} />
@@ -131,7 +139,7 @@ export default function Sidebar() {
         {!isOpen && (
           <button
             onClick={() => setIsOpen(true)}
-            className="mx-auto mt-4 flex size-10 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
+            className="btn-tactile relative z-10 mx-auto mt-4 flex size-10 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-white"
             title="Agrandir le menu"
           >
             <ChevronsRight size={18} />
@@ -140,7 +148,7 @@ export default function Sidebar() {
 
         {/* SESSION BADGE */}
         {isOpen && (
-          <div className="mx-6 mt-5 rounded-xl border border-indigo-400/20 bg-indigo-500/10 px-4 py-3.5">
+          <div className="relative z-10 mx-6 mt-5 rounded-xl border border-indigo-400/20 bg-indigo-500/10 px-4 py-3.5 backdrop-blur-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-300">Session</p>
             <p className="mt-1.5 truncate text-base font-semibold text-white">{getRoleLabel(role)}</p>
             <p className="text-sm text-slate-400">Accès adapté à votre rôle</p>
@@ -148,7 +156,7 @@ export default function Sidebar() {
         )}
 
         {/* NAV */}
-        <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-6">
+        <nav className="relative z-10 flex-1 space-y-6 overflow-y-auto px-4 py-6">
           {groups.map(({ group, items: groupNav }) => (
             <div key={group}>
               {isOpen && (
@@ -167,11 +175,16 @@ export default function Sidebar() {
                       key={item.href}
                       href={item.href}
                       title={item.label}
-                      className={`group relative flex items-center rounded-lg text-[15px] font-medium transition-all
+                      className={`btn-tactile group relative flex items-center overflow-hidden rounded-lg text-[15px] font-medium
                         ${isOpen ? 'gap-3.5 px-3 py-2.5' : 'justify-center py-3'}
-                        ${active ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-900/40' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
+                        ${active
+                          ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-950/50'
+                          : 'text-slate-300 hover:bg-[color-mix(in_oklch,white,var(--brand-teal)_20%)]/10 hover:text-white'}`}
                     >
-                      <Icon size={20} className={active ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'} />
+                      {active && (
+                        <span className="absolute inset-y-1 left-0 w-1 rounded-full bg-teal-300" />
+                      )}
+                      <Icon size={20} className={active ? 'text-white' : 'text-slate-400 transition-colors group-hover:text-teal-300'} />
                       {isOpen && <span className="truncate">{item.label}</span>}
                     </Link>
                   );
@@ -182,7 +195,7 @@ export default function Sidebar() {
         </nav>
 
         {/* ACCOUNT FOOTER */}
-        <div className="shrink-0 border-t border-white/5 p-4">
+        <div className="relative z-10 shrink-0 border-t border-white/5 p-4">
           <div className={`flex items-center rounded-lg ${isOpen ? 'gap-3 p-2.5' : 'justify-center py-2'}`}>
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-sm font-semibold text-indigo-300">
               {initials}
@@ -196,7 +209,7 @@ export default function Sidebar() {
             <button
               onClick={handleLogout}
               title="Déconnexion"
-              className={`shrink-0 rounded-md p-2 text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-400 ${isOpen ? '' : 'hidden'}`}
+              className={`btn-tactile shrink-0 rounded-md p-2 text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 ${isOpen ? '' : 'hidden'}`}
             >
               <LogOut size={18} />
             </button>
@@ -205,7 +218,7 @@ export default function Sidebar() {
             <button
               onClick={handleLogout}
               title="Déconnexion"
-              className="mx-auto mt-1 flex size-10 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              className="btn-tactile mx-auto mt-1 flex size-10 items-center justify-center rounded-md text-slate-400 hover:bg-rose-500/10 hover:text-rose-400"
             >
               <LogOut size={18} />
             </button>

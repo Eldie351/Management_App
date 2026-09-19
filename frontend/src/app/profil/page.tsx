@@ -3,10 +3,21 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
-import { getStoredUserRole } from '@/lib/auth';
+import { getStoredUserRole, hasAccess } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingDots } from '@/components/ui/loading_dots';
+
+const ROLE_LABEL: Record<string, string> = {
+  ADMIN: 'Admin',
+  MANAGER: 'Manager',
+  CASHIER: 'Caissier',
+};
+
+interface ColleagueGroup {
+  store: { id: number; name: string };
+  staff: { id: number; name: string; email: string; role: string }[];
+}
 
 export default function ProfilPage() {
   const router = useRouter();
@@ -17,6 +28,10 @@ export default function ProfilPage() {
   const [error, setError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [role, setRole] = useState<string | null>(null);
+
+  const [colleagues, setColleagues] = useState<ColleagueGroup[]>([]);
+  const [colleaguesLoading, setColleaguesLoading] = useState(false);
+  const [colleaguesError, setColleaguesError] = useState('');
 
   // Charger les données du profil utilisateur
   const fetchProfile = async () => {
@@ -45,15 +60,41 @@ export default function ProfilPage() {
     }
   };
 
+  // Le staff (ADMIN a déjà une page dédiée /staff pour gérer son équipe) :
+  // ici on affiche, en lecture seule, les collègues des magasins auxquels
+  // le CASHIER/MANAGER est assigné.
+  const fetchColleagues = async (token: string) => {
+    setColleaguesLoading(true);
+    try {
+      const res = await fetch(`${API}/users/colleagues`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Impossible de charger la liste des collègues.');
+      const data = await res.json();
+      setColleagues(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setColleaguesError(err.message || 'Erreur lors du chargement des collègues.');
+    } finally {
+      setColleaguesLoading(false);
+    }
+  };
+
   useEffect(() => {
-    setRole(getStoredUserRole());
+    const currentRole = getStoredUserRole();
+    setRole(currentRole);
     fetchProfile();
+
+    const token = localStorage.getItem('access_token');
+    if (token && hasAccess(currentRole, ['CASHIER', 'MANAGER'])) {
+      fetchColleagues(token);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   // Action : Supprimer définitivement le compte
   const handleDeleteAccount = async () => {
     const confirmation = confirm(
-      "⚠️ ATTENTION : Voulez-vous vraiment supprimer définitivement votre compte ? Cette action effacera TOUS vos entrepôts et TOUS vos produits associés sans retour en arrière possible."
+      "ATTENTION : Voulez-vous vraiment supprimer définitivement votre compte ? Cette action effacera TOUS vos entrepôts et TOUS vos produits associés sans retour en arrière possible."
     );
 
     if (!confirmation) return;
@@ -199,6 +240,59 @@ export default function ProfilPage() {
             </div>
           )}
         </div>
+
+        {hasAccess(role as any, ['CASHIER', 'MANAGER']) && (
+          <div className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Mes collègues</CardTitle>
+                <CardDescription>
+                  Le personnel des magasins auxquels vous êtes assigné(e).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {colleaguesError ? (
+                  <p className="text-sm text-red-500">{colleaguesError}</p>
+                ) : colleaguesLoading ? (
+                  <div className="py-6 text-center text-slate-400">Chargement...</div>
+                ) : colleagues.length === 0 ? (
+                  <p className="text-sm text-slate-400">Aucun magasin ne vous est assigné pour le moment.</p>
+                ) : (
+                  <div className="space-y-6">
+                    {colleagues.map(({ store, staff }) => (
+                      <div key={store.id}>
+                        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                          {store.name}
+                        </h3>
+                        <div className="divide-y rounded-lg border">
+                          {staff.map((member) => (
+                            <div
+                              key={member.id}
+                              className="flex items-center justify-between px-4 py-2.5 text-sm"
+                            >
+                              <div>
+                                <p className="font-medium text-gray-800">
+                                  {member.name}
+                                  {member.id === profile?.id && (
+                                    <span className="ml-2 text-xs text-slate-400">(vous)</span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-gray-400">{member.email}</p>
+                              </div>
+                              <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600">
+                                {ROLE_LABEL[member.role] ?? member.role}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </main>
     </div>
   );

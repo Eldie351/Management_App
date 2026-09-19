@@ -234,7 +234,7 @@ export class ProductsController {
   // --- Export PDF / Excel --------------------------------------------------
 
   @Get('store/:storeId/export/excel')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
   async exportExcel(
     @Param('storeId', ParseIntPipe) storeId: number,
     @Res() res: Response,
@@ -257,7 +257,7 @@ export class ProductsController {
   }
 
   @Get('store/:storeId/export/pdf')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
   async exportPdf(
     @Param('storeId', ParseIntPipe) storeId: number,
     @Res() res: Response,

@@ -83,7 +83,7 @@ export class NotificationsService {
       await this.create(
         storeId,
         'Rupture de stock',
-        `🚫 ${productName} est en rupture de stock.`,
+        `${productName} est en rupture de stock.`,
         client,
       );
       return;
@@ -98,7 +98,7 @@ export class NotificationsService {
       await this.create(
         storeId,
         'Stock critique (Urgence)',
-        `🚨 ${productName} a atteint son seuil de sécurité critique (${newQuantity} restant, seuil de sécurité : ${effectiveSafetyStock}). Réapprovisionnement immédiat requis !`,
+        `${productName} a atteint son seuil de sécurité critique (${newQuantity} restant, seuil de sécurité : ${effectiveSafetyStock}). Réapprovisionnement immédiat requis !`,
         client,
       );
       return;
@@ -113,7 +113,7 @@ export class NotificationsService {
       await this.create(
         storeId,
         'Stock faible',
-        `⚠️ ${productName} est passé sous le seuil minimal (${newQuantity} restant, seuil minimal : ${minimumStock}).`,
+        `${productName} est passé sous le seuil minimal (${newQuantity} restant, seuil minimal : ${minimumStock}).`,
         client,
       );
     }

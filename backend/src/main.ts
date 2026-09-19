@@ -8,6 +8,11 @@ import { ValidationPipe } from '@nestjs/common';
 // requête s'exécute normalement — et suivi ici : github.com/prisma/prisma/issues/29646
 // et github.com/prisma/prisma/issues/29407. À retirer une fois le correctif publié
 // (npm install @prisma/adapter-pg@latest prisma@latest pour vérifier).
+// Node enregistre son propre listener 'warning' par défaut (qui imprime tout
+// sur stderr) avant que ce fichier ne s'exécute ; ajouter un simple listener
+// supplémentaire ne le désactive pas, il faut d'abord le retirer pour que
+// notre filtre soit le seul à décider quoi afficher.
+process.removeAllListeners('warning');
 process.on('warning', (warning) => {
   if (warning.name === 'DeprecationWarning' && warning.message.includes('client.query()')) {
     return;

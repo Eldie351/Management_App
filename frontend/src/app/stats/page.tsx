@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import DashboardCard from '@/components/DashboardCard';
+import TentacleField from '@/components/TentacleField';
 import { Button } from '@/components/ui/button';
 import { LoadingDots } from '@/components/ui/loading_dots';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -88,7 +89,7 @@ const MONTHS_FR = [
 ];
 const MONTHS_FR_SHORT = MONTHS_FR.map((m) => m.slice(0, 3));
 const DAYS_FR_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#f97316', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
+const COLORS = ['#4F3AA0', '#22AEA0', '#CE6A6B', '#AF2589', '#639C71', '#211A44', '#8A72C9', '#A43233'];
 
 function pad(n: number) {
   return n.toString().padStart(2, '0');
@@ -434,11 +435,12 @@ export default function StatsPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="relative flex h-screen bg-gray-100">
       <Sidebar />
 
-      <main className="flex-1 overflow-y-auto p-8">
-        <div className="border-b pb-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <main className="relative flex-1 overflow-y-auto p-8">
+        <TentacleField className="fixed inset-0 -z-10" />
+        <div className="relative border-b pb-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Rapports & Statistiques</h1>
             <p className="mt-1 text-sm text-gray-500">Suivi du chiffre d'affaires, de l'inventaire et des performances par magasin</p>
@@ -448,7 +450,7 @@ export default function StatsPage() {
             {storeFilter && (
               <button
                 onClick={() => setStoreFilter('')}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                className="btn-tactile flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                 title="Réinitialiser le filtre magasin"
               >
                 <CircleX className="size-3.5" /> Réinitialiser
@@ -499,8 +501,8 @@ export default function StatsPage() {
                   <button
                     key={p}
                     onClick={() => { setPeriod(p); setCalendarOpen(false); }}
-                    className={`px-3 py-1.5 text-sm rounded-sm transition-colors ${
-                      period === p ? 'bg-white shadow-sm font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    className={`btn-tactile px-3 py-1.5 text-sm rounded-sm ${
+                      period === p ? 'bg-white shadow-sm font-medium text-foreground' : 'text-muted-foreground hover:bg-white/60 hover:text-foreground'
                     }`}
                   >
                     {p === 'week' ? 'Semaine' : p === 'month' ? 'Mois' : 'Année'}
@@ -548,10 +550,10 @@ export default function StatsPage() {
                         <button
                           key={key}
                           onClick={() => openDayDetails(key, `${DAYS_FR_SHORT[(d.getDay() + 6) % 7]} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`)}
-                          className={`flex flex-col items-center gap-1 rounded-lg py-2.5 text-xs transition-colors ${
+                          className={`btn-tactile flex flex-col items-center gap-1 rounded-lg py-2.5 text-xs ${
                             isSelected ? 'bg-primary text-primary-foreground'
                               : isToday ? 'bg-muted font-medium ring-1 ring-primary/40'
-                              : 'hover:bg-muted'
+                              : 'hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_10%)]'
                           }`}
                         >
                           <span className="uppercase text-[10px] opacity-70">{DAYS_FR_SHORT[(d.getDay() + 6) % 7]}</span>
@@ -577,11 +579,11 @@ export default function StatsPage() {
                             key={cell.key}
                             disabled={!cell.inCurrentMonth}
                             onClick={() => openDayDetails(cell.key, `${pad(cell.date.getDate())}/${pad(cell.date.getMonth() + 1)}/${cell.date.getFullYear()}`)}
-                            className={`aspect-square flex flex-col items-center justify-center gap-0.5 rounded-lg text-xs transition-colors ${
+                            className={`btn-tactile aspect-square flex flex-col items-center justify-center gap-0.5 rounded-lg text-xs ${
                               !cell.inCurrentMonth ? 'text-muted-foreground/30 cursor-default'
                                 : isSelected ? 'bg-primary text-primary-foreground'
                                 : cell.isToday ? 'bg-muted font-medium ring-1 ring-primary/40'
-                                : 'hover:bg-muted'
+                                : 'hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_10%)]'
                             }`}
                           >
                             <span>{cell.date.getDate()}</span>
@@ -601,10 +603,10 @@ export default function StatsPage() {
                       <button
                         key={m}
                         onClick={() => { setAnchor(new Date(anchor.getFullYear(), i, 1)); setPeriod('month'); }}
-                        className={`rounded-lg py-3 text-sm transition-colors ${
+                        className={`btn-tactile rounded-lg py-3 text-sm ${
                           i === new Date().getMonth() && anchor.getFullYear() === new Date().getFullYear()
                             ? 'bg-muted font-medium ring-1 ring-primary/40'
-                            : 'hover:bg-muted'
+                            : 'hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_10%)]'
                         }`}
                       >
                         {m}
@@ -632,12 +634,12 @@ export default function StatsPage() {
                       tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`)}
                     />
                     <Tooltip
-                      cursor={{ fill: 'rgba(37, 99, 235, 0.08)' }}
+                      cursor={{ fill: 'rgba(79, 58, 160, 0.08)' }}
                       formatter={(value: any) => [formatCurrency(Number(value)), 'Ventes']}
                     />
                     <Bar
                       dataKey="amount"
-                      fill="#2563eb"
+                      fill="#4F3AA0"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
                       onClick={(point: any) => {
@@ -683,7 +685,7 @@ export default function StatsPage() {
                 ) : dayDetails && dayDetails.length > 0 ? (
                   <div className="space-y-2">
                     {dayDetails.map((s) => (
-                      <div key={s.id} className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2">
+                      <div key={s.id} className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2 transition-colors hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_8%)]">
                         <div>
                           <p className="font-medium text-sm">{s.productName}</p>
                           <p className="text-xs text-muted-foreground">
@@ -706,7 +708,7 @@ export default function StatsPage() {
         </Card>
 
         {/* 3. Performance des magasins */}
-        <Card>
+        <Card className="relative">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg">Performance des magasins</CardTitle>
@@ -769,7 +771,7 @@ export default function StatsPage() {
                       <div
                         key={store.storeId}
                         onClick={() => goToStoreDetail(store.storeId)}
-                        className="flex items-center justify-between p-3 rounded-lg bg-white border shadow-sm hover:border-primary cursor-pointer transition-all"
+                        className="btn-tactile flex items-center justify-between p-3 rounded-lg bg-white border shadow-sm hover:border-primary/50 hover:bg-[color-mix(in_oklch,white,var(--primary)_4%)] hover:shadow-md cursor-pointer"
                       >
                         <div className="flex items-center gap-3">
                           <span

@@ -1,0 +1,4 @@
+# Docker Compose - variables d'environnement locales (secrets)
+.env
+.env.*
+!.env.example

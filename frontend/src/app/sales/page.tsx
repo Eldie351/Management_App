@@ -379,9 +379,7 @@ export default function SalesPage() {
     const storeName = sale.store?.name ?? currentStoreObj?.name ?? 'Magasin';
     const storeLocation = sale.store?.location ?? currentStoreObj?.location ?? '';
     const storePhone = sale.store?.phone ?? 'N/A';
-    const formattedLocation = storeLocation.includes('Bénin')
-      ? storeLocation
-      : `${storeLocation}${storeLocation ? ', Bénin' : 'Bénin'}`;
+    const formattedLocation = storeLocation;
     const currency = sale.store?.currency ?? currentStoreObj?.currency ?? 'XOF';
     const discountAmount = Number(sale.discount ?? 0);
     const subtotal = Number(sale.subtotal ?? Number(sale.totalAmount ?? 0) + discountAmount);
@@ -410,7 +408,7 @@ export default function SalesPage() {
         <body>
           <div class="invoice-header">
             <h1>${escapeHtml(storeName)}</h1>
-            <p>${escapeHtml(formattedLocation)}</p>
+            ${formattedLocation ? `<p>${escapeHtml(formattedLocation)}</p>` : ''}
             <p>Tél : ${escapeHtml(storePhone)}</p>
           </div>
           <div class="divider"></div>
@@ -566,7 +564,7 @@ export default function SalesPage() {
                       <Input
                         id="productSearchInput"
                         type="text"
-                        placeholder="🔍 Taper le nom ou SKU du produit..."
+                        placeholder="Taper le nom ou SKU du produit..."
                         value={productSearchQuery}
                         onChange={(e) => {
                           setProductSearchQuery(e.target.value);
@@ -585,7 +583,7 @@ export default function SalesPage() {
                             onClick={() => { setSelectedProductId(''); setProductSearchQuery(''); }}
                             className="text-blue-500 hover:text-blue-700 font-bold ml-2"
                           >
-                            ✕
+                            <X className="size-3.5" />
                           </button>
                         </div>
                       )}

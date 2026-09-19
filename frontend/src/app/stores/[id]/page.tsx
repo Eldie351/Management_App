@@ -5,6 +5,7 @@ import { LoadingDots } from '@/components/ui/loading_dots';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import DashboardCard from '@/components/DashboardCard';
+import TentacleField from '@/components/TentacleField';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -423,11 +424,12 @@ function StoreDetailContent() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="relative flex h-screen bg-gray-100">
       <Sidebar />
 
-      <main className="flex-1 overflow-y-auto p-8">
-        <div className="border-b pb-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <main className="relative flex-1 overflow-y-auto p-8">
+        <TentacleField className="fixed inset-0 -z-10" />
+        <div className="relative border-b pb-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <Button variant="ghost" size="sm" onClick={() => router.push('/stats')} className="mb-2 -ml-2 gap-1 text-muted-foreground">
               <ArrowLeft className="size-4" /> Retour aux rapports
@@ -478,8 +480,8 @@ function StoreDetailContent() {
                   <button
                     key={p}
                     onClick={() => setPeriod(p)}
-                    className={`px-3 py-1.5 text-sm rounded-sm transition-colors ${
-                      period === p ? 'bg-white shadow-sm font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    className={`btn-tactile px-3 py-1.5 text-sm rounded-sm ${
+                      period === p ? 'bg-white shadow-sm font-medium text-foreground' : 'text-muted-foreground hover:bg-white/60 hover:text-foreground'
                     }`}
                   >
                     {p === 'week' ? 'Semaine' : p === 'month' ? 'Mois' : 'Année'}
@@ -516,12 +518,12 @@ function StoreDetailContent() {
                       tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`)}
                     />
                     <Tooltip
-                      cursor={{ fill: 'rgba(37, 99, 235, 0.08)' }}
+                      cursor={{ fill: 'rgba(79, 58, 160, 0.08)' }}
                       formatter={(value: any) => [formatCurrency(Number(value)), 'Ventes']}
                     />
                     <Bar
                       dataKey="amount"
-                      fill="#2563eb"
+                      fill="#4F3AA0"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
                       onClick={(point: any) => {
@@ -622,7 +624,7 @@ function StoreDetailContent() {
                     return (
                       <Fragment key={key}>
                         <TableRow
-                          className="cursor-pointer"
+                          className="cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--muted),var(--primary)_6%)]"
                           onClick={() => setExpandedSaleId(isOpen ? null : key)}
                         >
                           <TableCell>

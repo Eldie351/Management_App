@@ -8,6 +8,7 @@ Chaque **ADMIN** possède un ou plusieurs magasins et y affecte des **MANAGER**/
 
 - [Stack technique](#stack-technique)
 - [Fonctionnalités](#fonctionnalités)
+- [Démarrage rapide avec Docker](#démarrage-rapide-avec-docker)
 - [Prérequis](#prérequis)
 - [Installation](#installation)
 - [Variables d'environnement](#variables-denvironnement)
@@ -38,12 +39,49 @@ Chaque **ADMIN** possède un ou plusieurs magasins et y affecte des **MANAGER**/
 
 - **Authentification & comptes** : inscription/connexion (JWT), mot de passe oublié / réinitialisation par email, gestion du personnel (MANAGER/CASHIER) par l'ADMIN.
 - **Magasins** : création/édition/suppression de magasins, devise par magasin (XOF, EUR, USD, GBP, NGN), statistiques par magasin et par période.
-- **Produits & stock** : création/édition/suppression (soft delete), catégories, fournisseurs, mouvements de stock (création, vente, réapprovisionnement, ajustement manuel), seuils d'alerte (minimum/sécurité/optimal) et suggestions de réapprovisionnement, export Excel/PDF de l'inventaire.
+- **Produits & stock** : création/édition/suppression (soft delete), catégories, fournisseurs, mouvements de stock (création, vente, réapprovisionnement, ajustement manuel), seuils d'alerte (minimum/sécurité/optimal) et suggestions de réapprovisionnement, export Excel/PDF de l'inventaire. Détection des doublons exacts (bloqués) et des noms composés des mêmes mots dans un ordre différent (avertissement avec confirmation avant création).
 - **Ventes & caisse** : enregistrement de ventes avec génération de facture, historique des ventes et des reçus, impression de reçu.
-- **Rapports & statistiques** : chiffre d'affaires, valeur d'inventaire, ventes par période (semaine/mois/année) avec drill-down par jour, performance par magasin, statistiques dédiées aux caissiers.
+- **Rapports & statistiques** : chiffre d'affaires et valeur d'inventaire reconstituée à la date de fin de la période sélectionnée (à partir des mouvements de stock, pas du stock actuel), ventes par période (semaine/mois/année) avec drill-down par jour, performance par magasin, statistiques dédiées aux caissiers.
 - **Notifications** : alertes de seuil de stock bas.
 - **Taux de change** : conversion multi-devises avec cache et rafraîchissement automatique (cron) via une API externe (clé optionnelle).
 - **Journal d'audit** : traçabilité des actions sensibles (création/modification/suppression de produits, ventes, etc.), consultable par l'ADMIN.
+
+## Démarrage rapide avec Docker
+
+C'est la manière la plus simple de lancer tout le projet (backend + frontend +
+base de données PostgreSQL) en une seule commande, sans installer Node.js ni
+PostgreSQL sur votre machine.
+
+**Prérequis :** [Docker](https://docs.docker.com/get-docker/) + Docker Compose.
+
+```bash
+git clone https://github.com/Eldie351/Management_App.git
+cd Management_App
+
+# (optionnel) personnaliser les identifiants / secrets
+cp .env.example .env   # puis éditez .env, en particulier JWT_SECRET
+
+docker compose up --build
+```
+
+- Frontend : http://localhost:3000
+- Backend (API) : http://localhost:3001
+
+Le premier démarrage installe les dépendances, build les images, crée la base
+PostgreSQL et applique automatiquement les migrations Prisma
+(`prisma migrate deploy`). Les démarrages suivants sont beaucoup plus rapides
+grâce au cache Docker. Les données PostgreSQL sont persistées dans un volume
+Docker nommé (`db_data`) : elles survivent à un `docker compose down`
+(utilisez `docker compose down -v` pour tout réinitialiser, base incluse).
+
+Le fichier `.env` à la racine (basé sur `.env.example`) permet de personnaliser
+les identifiants Postgres, les ports exposés, `JWT_SECRET`, `RESEND_API_KEY`,
+etc. sans toucher au reste du projet — `docker compose up` fonctionne même
+sans ce fichier grâce aux valeurs par défaut, mais **changez `JWT_SECRET`**
+avant tout usage réel (au-delà d'un simple essai local).
+
+> Pour un développement au quotidien (hot-reload, debug), préférez le
+> lancement "hors Docker" décrit ci-dessous.
 
 ## Prérequis
 
@@ -67,19 +105,12 @@ npm install          # exécute aussi `prisma generate` via le hook postinstall
 cp .env.example .env # puis renseignez les valeurs (voir tableau ci-dessous)
 ```
 
-> Il n'existe pas encore de fichier `.env.example` versionné : créez `backend/.env` directement à partir du tableau des [variables d'environnement](#variables-denvironnement).
-
 ### 2) Frontend
 
 ```bash
 cd ../frontend
 npm install
-```
-
-Créez `frontend/.env.local` :
-
-```
-NEXT_PUBLIC_API_URL=http://localhost:3001
+cp .env.local.example .env.local # puis ajustez si besoin
 ```
 
 ## Variables d'environnement
@@ -88,8 +119,8 @@ NEXT_PUBLIC_API_URL=http://localhost:3001
 
 | Variable | Obligatoire | Description |
 |---|---|---|
-| `DATABASE_URL` | ✅ | Chaîne de connexion PostgreSQL, ex : `postgresql://user:password@localhost:5432/octostock` |
-| `JWT_SECRET` | ✅ | Secret de signature des JWT. **Aucune valeur par défaut** : le serveur refuse de démarrer si elle est absente. Générez une valeur forte, ex : `openssl rand -base64 48` |
+| `DATABASE_URL` | oui | Chaîne de connexion PostgreSQL, ex : `postgresql://user:password@localhost:5432/octostock` |
+| `JWT_SECRET` | oui | Secret de signature des JWT. **Aucune valeur par défaut** : le serveur refuse de démarrer si elle est absente. Générez une valeur forte, ex : `openssl rand -base64 48` |
 | `PORT` | non | Port d'écoute de l'API (défaut : `3001`) |
 | `NODE_ENV` | non | `development` / `production`. Contrôle notamment si le lien de réinitialisation de mot de passe est renvoyé dans la réponse API |
 | `FRONTEND_URL` | recommandé | Base URL du frontend, utilisée pour construire le lien de réinitialisation de mot de passe (ex : `http://localhost:3000`) |
@@ -188,7 +219,7 @@ Toutes les routes ci-dessous requièrent un header `Authorization: Bearer <token
 | Auth | `/auth` | `POST /register`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `GET /profil` |
 | Utilisateurs | `/users` | `GET /me`, `POST /staff`, `GET /staff`, `PATCH /:id/role`, `DELETE /:id` |
 | Magasins | `/stores` | `POST /`, `GET /`, `GET /:id`, `PATCH /:id`, `DELETE /:id`, `GET /:id/stats` |
-| Produits | `/products` | `POST /`, `GET /store/:storeId`, `PATCH /:id`, `DELETE /:id`, `PATCH /:id/recharge`, `PATCH /:id/adjust`, `GET /low-stock`, `GET /out-of-stock`, `GET /store/:storeId/export/excel`, `GET /store/:storeId/export/pdf` |
+| Produits | `/products` | `POST /`, `GET /store/:storeId`, `PATCH /:id`, `DELETE /:id`, `PATCH /:id/recharge`, `PATCH /:id/adjust`, `GET /low-stock`, `GET /out-of-stock`, `GET /store/:storeId/similar-names` (détection de doublons), `GET /store/:storeId/export/excel`, `GET /store/:storeId/export/pdf` |
 | Catégories | `/categories` | `POST /`, `GET /store/:id`, `PATCH /:id`, `DELETE /:id` |
 | Fournisseurs | `/suppliers` | `POST /`, `GET /`, `GET /store/:id`, `PATCH /:id`, `DELETE /:id` |
 | Ventes | `/sales` | `POST /`, `GET /store/:storeId`, `GET /:id`, `DELETE /:id` |
@@ -208,6 +239,9 @@ L'isolation multi-tenant (un ADMIN/MANAGER/CASHIER n'accède qu'aux données de 
 - Blocage de la création d'un produit portant un nom déjà utilisé (non archivé) dans le même magasin.
 - Authentification requise sur les endpoints de taux de change (`/refresh`, etc.), auparavant accessibles sans token.
 - Correction d'une faille XSS stockée (nom client/produit injecté tel quel dans la fenêtre d'impression du reçu) et remplacement de `document.write` par un rendu DOM sûr.
+- `SHOW_RESET_LINK` vaut désormais `false` par défaut dans `docker-compose.yml` et les fichiers `.env.example` : un déploiement Docker par défaut ne renvoie plus le lien de réinitialisation de mot de passe dans la réponse API (ce comportement reste disponible en l'activant explicitement, pour la démo/le développement local uniquement).
+
+Concernant le `docker-compose.yml` fourni pour un démarrage rapide (voir [Démarrage rapide avec Docker](#démarrage-rapide-avec-docker)) : `JWT_SECRET` a une valeur par défaut fonctionnelle (`change-me-to-a-long-random-secret`) pour que la stack démarre sans configuration. Cette valeur est **publique** (visible dans ce dépôt) : ne l'utilisez jamais au-delà d'un essai local, et changez-la systématiquement via `.env` avant tout déploiement réel.
 
 Points connus à améliorer (aucun correctif appliqué à ce jour) :
 

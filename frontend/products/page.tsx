@@ -266,7 +266,7 @@ function ProductsContent() {
         <div className="mb-6 max-w-md">
           <Input
             type="text"
-            placeholder="🔍 Rechercher par désignation, description ou référence SKU..."
+            placeholder="Rechercher par désignation, description ou référence SKU..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white shadow-sm h-10 border-gray-200 focus:border-blue-500"

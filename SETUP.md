@@ -1,63 +1,49 @@
-# Management_App - Fix Missing Dependencies
+# Dépannage — dépendances manquantes
 
-## Problem
-The application is showing TypeScript compilation errors because npm dependencies are not installed.
+Si vous voyez des erreurs TypeScript du type "Cannot find module '@nestjs/common'" ou
+"Cannot find name 'process'" juste après avoir cloné le dépôt, c'est simplement que
+les dépendances npm n'ont pas encore été installées. Pour l'installation complète et
+la configuration des variables d'environnement, suivez le README à la racine du
+projet, section [Installation](README.md#installation) — ce fichier ne couvre que le
+dépannage rapide ci-dessous.
 
-## Solution
+## Backend
 
-### Backend Setup
 ```bash
 cd backend
-npm install
-npm run postinstall  # This will run: prisma generate
+npm install          # installe les dépendances et exécute `prisma generate` (postinstall)
 ```
 
-### Frontend Setup
+Erreurs résolues par ce `npm install` :
+- `Cannot find module '@nestjs/common'` — dépendances non installées.
+- `Cannot find name 'process'` — `@types/node` manquant (installé via `npm install`).
+- `Cannot find module 'prisma/config'` / erreurs sur `PrismaService` — le client Prisma doit être généré (`prisma generate`, exécuté automatiquement par `postinstall`).
+
+## Frontend
+
 ```bash
 cd frontend
 npm install
 ```
 
-### Run the Application
+## Lancer l'application
 
-**Backend (NestJS)**
 ```bash
+# Backend (NestJS)
 cd backend
-npm start           # Production mode
-npm run start:dev   # Development mode with watch
-npm run start:debug # Debug mode
-```
+npm run start:dev   # mode développement avec rechargement à chaud
+npm run start:prod  # mode production (après `npm run build`)
 
-**Frontend (Next.js)**
-```bash
+# Frontend (Next.js)
 cd frontend
-npm run dev  # Development server
-npm run build # Production build
-npm start    # Production server
+npm run dev    # serveur de développement
+npm run build  # build de production
+npm start      # serveur de production
 ```
 
-## Common Issues Fixed
+## Variables d'environnement
 
-1. **Cannot find module '@nestjs/common'** - Dependencies not installed
-2. **Cannot find name 'process'** - Missing @types/node (in devDependencies)
-3. **Cannot find module 'prisma/config'** - Prisma schema generation needed
-4. **Property does not exist on type 'PrismaService'** - Prisma client generation needed
-
-All these are resolved by running `npm install` in the backend directory.
-
-## Environment Setup
-
-Create a `.env` file in the backend directory:
-```
-DATABASE_URL=postgresql://user:password@localhost:5432/management_db
-JWT_SECRET=your_secret_key_here
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=465
-EMAIL_SECURE=true
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
-EMAIL_FROM=noreply@management.app
-FRONTEND_URL=http://localhost:3000
-NODE_ENV=development
-PORT=3001
-```
+Ce fichier ne duplique plus la liste des variables : consultez le README, section
+[Variables d'environnement](README.md#variables-denvironnement), et copiez
+`backend/.env.example` vers `backend/.env` (et `frontend/.env.local.example` vers
+`frontend/.env.local`) comme point de départ.

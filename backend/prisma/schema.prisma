@@ -39,6 +39,12 @@ enum DiscountType {
   PERCENT
 }
 
+enum TicketStatus {
+  OPEN
+  APPROVED
+  CLOSED
+}
+
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
@@ -68,6 +74,13 @@ model User {
   stockMovements  StockMovement[]
   sales           Sale[]
   auditLogs       AuditLog[]
+
+  // Tickets de réapprovisionnement ouverts par cet utilisateur (CASHIER ou MANAGER)
+  ticketsCreated  Ticket[] @relation("TicketCreatedBy")
+  // Tickets qui lui sont adressés (destinataire choisi par le créateur)
+  ticketsReceived Ticket[] @relation("TicketRecipient")
+  // Tickets résolus (approuvés/fermés) par cet utilisateur (ADMIN/MANAGER)
+  ticketsResolved Ticket[] @relation("TicketResolvedBy")
 }
 
 model ResetToken {
@@ -101,6 +114,7 @@ model Store {
   suppliers     Supplier[]
   stockMovements StockMovement[]
   notifications Notification[]
+  tickets       Ticket[]
 }
 
 model StoreAssignment {
@@ -147,6 +161,7 @@ model Product {
 
   movements    StockMovement[]
   saleItems    SaleItem[]
+  tickets      Ticket[]
 
   @@unique([sku, storeId])
   @@unique([barcode, storeId])
@@ -260,4 +275,35 @@ model AuditLog {
   createdAt DateTime @default(now())
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Demande de réapprovisionnement ouverte par un CASHIER ou un MANAGER sur un
+// produit précis, adressée à un destinataire précis (MANAGER ou ADMIN du
+// magasin), qui l'approuve ou la ferme. Un ADMIN du magasin peut aussi
+// traiter n'importe quel ticket, même adressé à un MANAGER.
+model Ticket {
+  id                Int          @id @default(autoincrement())
+  status            TicketStatus @default(OPEN)
+  justification     String
+  requestedQuantity Int?
+  resolutionNote    String?
+  createdAt         DateTime     @default(now())
+  resolvedAt        DateTime?
+
+  storeId      Int
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId    Int
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdById  Int
+  createdBy    User     @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  recipientId  Int
+  recipient    User     @relation("TicketRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  resolvedById Int?
+  resolvedBy   User?    @relation("TicketResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([productId])
+  @@index([status])
+  @@index([recipientId])
 }

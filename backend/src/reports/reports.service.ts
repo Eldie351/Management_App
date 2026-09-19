@@ -65,19 +65,35 @@ export class ReportsService {
     });
     const totalRevenue = totalAgg._sum?.totalAmount ? Number(totalAgg._sum.totalAmount) : 0;
 
-    const products = await this.prisma.product.findMany({
+    // Valeur d'inventaire À LA FIN de la période sélectionnée : reconstruite
+    // à partir des mouvements de stock (somme des deltas signés jusqu'à
+    // `end`) pour chaque produit, plutôt qu'à partir de `product.quantity`
+    // (le stock ACTUEL) — sinon revenir sur une période passée affiche
+    // toujours le stock d'aujourd'hui, indépendamment des ventes qui ont eu
+    // lieu depuis. Le prix utilisé reste le prix de vente actuel, faute
+    // d'historique des prix en base.
+    const movementsByProduct = await this.prisma.stockMovement.groupBy({
+      by: ['productId'],
       where: {
-        quantity: { gt: 0 },
-        deletedAt: null,
+        createdAt: { lte: end },
         ...storeWhere,
       },
-      select: { quantity: true, sellingPrice: true },
+      _sum: { quantity: true },
     });
-    
-    const inventoryValue = products.reduce(
-      (sum, p) => sum + Number(p.quantity || 0) * Number(p.sellingPrice || 0),
-      0,
-    );
+
+    let inventoryValue = 0;
+    if (movementsByProduct.length > 0) {
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: movementsByProduct.map((m) => m.productId) } },
+        select: { id: true, sellingPrice: true },
+      });
+      const priceById = new Map(products.map((p) => [p.id, Number(p.sellingPrice || 0)]));
+
+      inventoryValue = movementsByProduct.reduce((sum, m) => {
+        const quantityAtDate = Math.max(0, Number(m._sum.quantity || 0));
+        return sum + quantityAtDate * (priceById.get(m.productId) ?? 0);
+      }, 0);
+    }
 
     let currency = 'XOF';
     if (parsedStoreId) {
