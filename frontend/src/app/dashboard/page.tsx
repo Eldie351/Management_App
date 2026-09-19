@@ -294,6 +294,7 @@ export default function DashboardPage() {
             description={ticketsCardDescription}
             icon={Ticket}
             accent="violet"
+            alert
           />
           <DashboardCard
             title="Stock faible"
@@ -301,6 +302,7 @@ export default function DashboardPage() {
             description="Produits sous le seuil d'alerte"
             icon={AlertTriangle}
             accent="amber"
+            alert
           />
           <DashboardCard
             title="Ruptures"
@@ -308,6 +310,7 @@ export default function DashboardPage() {
             description="Produits en rupture de stock"
             icon={PackageX}
             accent="rose"
+            alert
           />
         </div>
 
