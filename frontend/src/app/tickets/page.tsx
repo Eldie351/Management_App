@@ -41,11 +41,14 @@ interface Ticket {
   resolutionNote?: string | null;
   createdAt: string;
   resolvedAt?: string | null;
+  store?: { id: number; name: string };
   product: { id: number; name: string; sku?: string | null; quantity: number };
   createdBy: { id: number; name: string; role: AppRole };
   recipient: { id: number; name: string; role: AppRole };
   resolvedBy?: { id: number; name: string } | null;
 }
+
+const ALL_STORES = 'all';
 
 interface Profile {
   id: number;
@@ -173,8 +176,10 @@ function TicketsContent() {
       setTicketsLoading(true);
       setTicketsError('');
       try {
-        const res = await fetch(`${API}/tickets/store/${storeId}`, { headers: authHeaders() });
-        if (!res.ok) throw new Error('Impossible de charger les tickets de ce magasin.');
+        const url =
+          storeId === ALL_STORES ? `${API}/tickets/all` : `${API}/tickets/store/${storeId}`;
+        const res = await fetch(url, { headers: authHeaders() });
+        if (!res.ok) throw new Error('Impossible de charger les tickets.');
         const data = await res.json();
         setTickets(Array.isArray(data) ? data : []);
       } catch (err: any) {
@@ -207,7 +212,7 @@ function TicketsContent() {
   useEffect(() => {
     if (!selectedStoreId) return;
     fetchTickets(selectedStoreId);
-    if (canCreate) fetchStoreProducts(selectedStoreId);
+    if (canCreate && selectedStoreId !== ALL_STORES) fetchStoreProducts(selectedStoreId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStoreId, canCreate, fetchTickets, fetchStoreProducts]);
 
@@ -349,12 +354,13 @@ function TicketsContent() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            {stores.length > 1 && (
+            {stores.length > 0 && (
               <select
                 value={selectedStoreId}
                 onChange={(e) => setSelectedStoreId(e.target.value)}
                 className="rounded-lg border bg-white p-2 text-sm"
               >
+                {stores.length > 1 && <option value={ALL_STORES}>Tous les magasins</option>}
                 {stores.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -368,7 +374,8 @@ function TicketsContent() {
                   resetCreateForm();
                   setIsCreateModalOpen(true);
                 }}
-                disabled={!selectedStoreId}
+                disabled={!selectedStoreId || selectedStoreId === ALL_STORES}
+                title={selectedStoreId === ALL_STORES ? 'Choisissez un magasin précis pour ouvrir un ticket.' : undefined}
               >
                 + Nouveau ticket
               </Button>
@@ -386,7 +393,12 @@ function TicketsContent() {
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle>Tickets — {currentStore?.name ?? `Magasin #${selectedStoreId}`}</CardTitle>
+              <CardTitle>
+                Tickets —{' '}
+                {selectedStoreId === ALL_STORES
+                  ? 'Tous les magasins'
+                  : currentStore?.name ?? `Magasin #${selectedStoreId}`}
+              </CardTitle>
               <CardDescription>
                 {canEverResolve
                   ? "Vous pouvez traiter les tickets qui vous sont adressés (un admin peut traiter n'importe quel ticket du magasin)."
@@ -402,11 +414,16 @@ function TicketsContent() {
               {ticketsLoading ? (
                 <div className="py-12 text-center text-slate-400">Chargement...</div>
               ) : tickets.length === 0 ? (
-                <div className="py-12 text-center text-slate-400">Aucun ticket pour ce magasin.</div>
+                <div className="py-12 text-center text-slate-400">
+                  {selectedStoreId === ALL_STORES
+                    ? 'Aucun ticket sur vos magasins.'
+                    : 'Aucun ticket pour ce magasin.'}
+                </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {selectedStoreId === ALL_STORES && <TableHead>Magasin</TableHead>}
                       <TableHead>Produit</TableHead>
                       <TableHead>Justification</TableHead>
                       <TableHead className="text-center">Qté demandée</TableHead>
@@ -421,6 +438,11 @@ function TicketsContent() {
                       const statusInfo = STATUS_LABEL[ticket.status];
                       return (
                         <TableRow key={ticket.id}>
+                          {selectedStoreId === ALL_STORES && (
+                            <TableCell className="text-sm text-gray-600">
+                              {ticket.store?.name ?? '—'}
+                            </TableCell>
+                          )}
                           <TableCell className="font-medium">
                             {ticket.product.name}
                             <div className="text-xs text-gray-400">

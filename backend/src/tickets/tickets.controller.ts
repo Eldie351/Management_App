@@ -41,6 +41,13 @@ export class TicketsController {
     return this.ticketsService.findAllByStore(storeId, user);
   }
 
+  // Vue "Tous les magasins" de la page Tickets.
+  @Get('all')
+  @Roles(ADMIN, MANAGER, CASHIER)
+  async findAllForUser(@CurrentUser() user: any) {
+    return this.ticketsService.findAllForUser(user);
+  }
+
   @Patch(':id/approve')
   @Roles(ADMIN, MANAGER)
   async approve(

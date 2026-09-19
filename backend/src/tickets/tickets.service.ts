@@ -3,11 +3,12 @@ import { TicketStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { assertStoreAccess, getAllowedStoreIds } from '../common/utils/store-access.util';
+import { assertStoreAccess, buildStoreIdWhere, getAllowedStoreIds } from '../common/utils/store-access.util';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ResolveTicketDto } from './dto/resolve-ticket.dto';
 
 const TICKET_INCLUDE = {
+  store: { select: { id: true, name: true } },
   product: { select: { id: true, name: true, sku: true, quantity: true } },
   createdBy: { select: { id: true, name: true, role: true } },
   recipient: { select: { id: true, name: true, role: true } },
@@ -87,6 +88,18 @@ export class TicketsService {
 
     return this.prisma.ticket.findMany({
       where: { storeId },
+      include: TICKET_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Tickets de TOUS les magasins auxquels l'utilisateur a accès — pour la
+   * vue "Tous les magasins" de la page Tickets.
+   */
+  async findAllForUser(user: any) {
+    return this.prisma.ticket.findMany({
+      where: buildStoreIdWhere(user),
       include: TICKET_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
