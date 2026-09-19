@@ -116,12 +116,12 @@ export default function Sidebar() {
           <div
             className={`flex items-center gap-3 overflow-hidden ${isOpen ? '' : 'justify-center'}`}
           >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-pink-500 text-white shadow-lg shadow-indigo-950/50 transition-transform duration-300 hover:scale-105 hover:rotate-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white">
               <Boxes size={20} />
             </span>
             {isOpen && (
               <span className="truncate text-2xl font-bold tracking-tight text-white">
-                Octo<span className="text-[var(--brand-blue)]">Stock</span>
+                Octo<span className="text-blue-600">Stock</span>
               </span>
             )}
           </div>

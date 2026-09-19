@@ -136,11 +136,11 @@ export default function LandingPage() {
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/60 bg-white/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center px-6 py-3.5">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-pink-600 text-white shadow-md shadow-indigo-200 transition-transform duration-300 hover:scale-105 hover:rotate-3">
+            <span className="flex size-10 items-center justify-center rounded-lg bg-indigo-500 text-white">
               <Boxes size={22} />
             </span>
             <span className="text-2xl font-bold tracking-tight text-slate-900">
-              Octo<span className="text-[var(--brand-blue-deep)]">Stock</span>
+              Octo<span className="text-indigo-600">Stock</span>
             </span>
           </div>
 
@@ -476,11 +476,11 @@ export default function LandingPage() {
       <footer className="border-t border-slate-200/60 bg-white py-10">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-6 sm:flex-row">
           <div className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-pink-600 text-white">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-500 text-white">
               <Boxes size={15} />
             </span>
             <span className="font-bold tracking-tight text-slate-900">
-              Octo<span className="text-[var(--brand-blue-deep)]">Stock</span>
+              Octo<span className="text-indigo-600">Stock</span>
             </span>
           </div>
           <p className="text-sm text-slate-400">© 2026 OctoStock. Tous droits réservés.</p>
