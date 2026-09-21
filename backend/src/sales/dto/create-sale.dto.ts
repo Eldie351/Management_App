@@ -7,6 +7,8 @@ import {
   IsNumber,
   IsOptional,
   IsPositive,
+  IsString,
+  MaxLength,
   Min,
   ValidateNested
 } from 'class-validator';
@@ -47,4 +49,9 @@ export class CreateSaleDto {
   @IsNumber()
   @Min(0, { message: 'La remise ne peut pas être négative' })
   discountValue?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  customerName?: string;
 }
