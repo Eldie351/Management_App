@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Delete,
   Body,
   Param,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { UpdateSaleDto } from './dto/update-sale.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -71,6 +73,24 @@ export class SalesController {
     assertStoreAccess(user, sale.storeId, "Vous n'avez pas accès à cette facture.");
 
     return sale;
+  }
+
+  /**
+   * Corriger un reçu déjà émis (nom du client, mode de paiement).
+   * Réservé à l'ADMIN : les articles/montants/stock ne sont pas modifiables
+   * ici (voir UpdateSaleDto).
+   */
+  @Patch(':id')
+  @Roles(UserRole.ADMIN)
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateSaleDto: UpdateSaleDto,
+    @CurrentUser() user: any,
+  ) {
+    const sale = await this.salesService.findOne(id);
+    assertStoreAccess(user, sale.storeId, "Vous n'avez pas accès à cette facture.");
+
+    return this.salesService.updateSale(id, updateSaleDto, user.id);
   }
 
   @Delete(':id')
