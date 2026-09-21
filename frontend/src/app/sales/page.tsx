@@ -335,6 +335,7 @@ export default function SalesPage() {
           unitPrice: item.unitPrice,
         })),
         ...(discountValue > 0 ? { discountType, discountValue } : {}),
+        customerName: customerName.trim() || 'Client de passage',
       };
 
       const response = await fetch(`${API}/sales`, {
