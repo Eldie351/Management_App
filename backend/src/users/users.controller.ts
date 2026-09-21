@@ -17,6 +17,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { UpdateUserStoresDto } from './dto/update-user-stores.dto';
 import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 
 /**
@@ -103,6 +104,21 @@ export class UsersController {
       throw new ForbiddenException('Tu ne peux pas modifier ton propre rôle.');
     }
     return this.usersService.updateRole(id, dto.role, currentUserId);
+  }
+
+  /**
+   * Remplacer les magasins affectés à un membre du personnel — permet
+   * notamment de l'affecter à un magasin créé après la création de son
+   * compte, sans avoir à le recréer.
+   */
+  @Patch(':id/stores')
+  @Roles(UserRole.ADMIN)
+  async updateStores(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateUserStoresDto,
+    @CurrentUser('id') adminId: number,
+  ) {
+    return this.usersService.updateStoreAssignments(id, dto.storeIds, adminId);
   }
 
   /**
