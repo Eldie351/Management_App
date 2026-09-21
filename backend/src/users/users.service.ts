@@ -398,6 +398,70 @@ export class UsersService {
   }
 
   /**
+   * Remplace la liste des magasins auxquels un membre du personnel est
+   * affecté (utilisé notamment pour l'affecter à un magasin créé après lui,
+   * sans avoir à recréer son compte).
+   *
+   * Mêmes vérifications de propriété que createStaffUser : la cible doit
+   * avoir été créée par cet admin, et chaque magasin visé doit lui
+   * appartenir — sinon un ADMIN pourrait affecter un employé aux magasins
+   * d'un autre commerce.
+   */
+  async updateStoreAssignments(id: number, storeIds: number[], adminId: number) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable.');
+
+    if (user.createdById !== adminId) {
+      throw new ForbiddenException(
+        "Vous ne pouvez modifier que les magasins des membres de votre propre équipe.",
+      );
+    }
+
+    const uniqueStoreIds = Array.from(new Set(storeIds));
+
+    const stores = await this.prisma.store.findMany({
+      where: { id: { in: uniqueStoreIds } },
+    });
+
+    if (stores.length !== uniqueStoreIds.length) {
+      throw new NotFoundException('Un ou plusieurs magasins spécifiés sont introuvables.');
+    }
+
+    const notOwned = stores.filter((s) => s.userId !== adminId);
+    if (notOwned.length > 0) {
+      throw new ForbiddenException(
+        "Vous ne pouvez assigner un employé qu'à des magasins que vous possédez.",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.storeAssignment.deleteMany({ where: { userId: id } });
+
+      return tx.user.update({
+        where: { id },
+        data: {
+          assignedStoreId: uniqueStoreIds[0] ?? null,
+          storeAssignments: { create: uniqueStoreIds.map((storeId) => ({ storeId })) },
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          assignedStoreId: true,
+          createdAt: true,
+          storeAssignments: {
+            select: {
+              storeId: true,
+              store: { select: { id: true, name: true, location: true } },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  /**
    * Supprime un membre du personnel, en vérifiant qu'il a bien été créé par
    * cet administrateur.
    *
