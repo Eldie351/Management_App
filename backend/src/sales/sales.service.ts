@@ -154,6 +154,7 @@ export class SalesService {
           discountAmount,
           totalAmount: calculatedTotalAmount,
           paymentMethod: dto.paymentMethod,
+          customerName: dto.customerName?.trim() || null,
           storeId: dto.storeId,
           userId,
           items: {
