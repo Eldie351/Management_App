@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { LoadingDots } from '@/components/ui/loading_dots';
 import {
   Printer,
@@ -20,8 +21,10 @@ import {
   CalendarDays,
   ArrowLeft,
   CheckCircle2,
+  Pencil,
 } from 'lucide-react';
 import { escapeHtml } from '@/lib/html';
+import { getStoredUserRole } from '@/lib/auth';
 
 interface ReceiptItem {
   id?: number | string;
@@ -185,6 +188,18 @@ function ReceiptsContent() {
   const [period, setPeriod] = useState<Period>('week');
   const [anchor, setAnchor] = useState<Date>(() => new Date());
   const [calendarOpen, setCalendarOpen] = useState(false);
+
+  // Édition d'un reçu (réservée à l'ADMIN)
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState('CASH');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  useEffect(() => {
+    setIsAdmin(getStoredUserRole() === 'ADMIN');
+  }, []);
 
   // 1. Charger la liste des magasins au montage
   const fetchStores = useCallback(async () => {
@@ -544,6 +559,45 @@ function ReceiptsContent() {
     setTimeout(() => { w.print(); w.close(); }, 300);
   };
 
+  const openEditReceipt = (r: Receipt) => {
+    setEditError('');
+    setEditCustomerName(r.customerName || '');
+    setEditPaymentMethod(r.paymentMethod || 'CASH');
+    setEditingReceipt(r);
+  };
+
+  const saveEditReceipt = async () => {
+    if (!editingReceipt) return;
+    setSavingEdit(true);
+    setEditError('');
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const res = await fetch(`${API}/sales/${editingReceipt.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customerName: editCustomerName.trim() || 'Client de passage',
+          paymentMethod: editPaymentMethod,
+        }),
+      });
+
+      const updated = await res.json();
+      if (!res.ok) throw new Error(updated.message || updated.error || 'Échec de la modification du reçu.');
+
+      setReceipts((prev) => prev.map((r) => (String(r.id) === String(updated.id) ? { ...r, ...updated } : r)));
+      setSelectedReceipt((prev) => (prev && String(prev.id) === String(updated.id) ? { ...prev, ...updated } : prev));
+      setEditingReceipt(null);
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Une erreur est survenue.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const filteredReceipts = receipts.filter((r) => {
     const query = searchQuery.toLowerCase();
     const number = getReceiptNumber(r).toLowerCase();
@@ -833,14 +887,26 @@ function ReceiptsContent() {
                           {getTotalAmount(r).toFixed(2)} {getStoreObj(r)?.currency || r.currency || 'XOF'}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setSelectedReceipt(r)}
-                            className="gap-1 bg-slate-900 text-white hover:bg-slate-800"
-                          >
-                            <ReceiptIcon className="w-4 h-4" /> Reçu
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openEditReceipt(r)}
+                                className="gap-1"
+                              >
+                                <Pencil className="w-4 h-4" /> Modifier
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setSelectedReceipt(r)}
+                              className="gap-1 bg-slate-900 text-white hover:bg-slate-800"
+                            >
+                              <ReceiptIcon className="w-4 h-4" /> Reçu
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -978,6 +1044,15 @@ function ReceiptsContent() {
                 <Button variant="outline" className="flex-1" onClick={() => setSelectedReceipt(null)}>
                   Fermer
                 </Button>
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-2"
+                    onClick={() => openEditReceipt(selectedReceipt)}
+                  >
+                    <Pencil className="w-4 h-4" /> Modifier
+                  </Button>
+                )}
                 <Button className="flex-1 gap-2 bg-slate-900 hover:bg-slate-800 text-white" onClick={() => printReceipt(selectedReceipt)}>
                   <Printer className="w-4 h-4" /> Imprimer
                 </Button>
@@ -986,6 +1061,67 @@ function ReceiptsContent() {
           </div>
         );
       })()}
+
+      {/* MODAL D'ÉDITION D'UN REÇU (ADMIN uniquement) */}
+      {editingReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 relative">
+            <button
+              onClick={() => setEditingReceipt(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="font-bold text-lg mb-1">Modifier le reçu</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Facture N° {getReceiptNumber(editingReceipt)}
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="editCustomerName">Client</Label>
+                <Input
+                  id="editCustomerName"
+                  type="text"
+                  value={editCustomerName}
+                  onChange={(e) => setEditCustomerName(e.target.value)}
+                  placeholder="Client de passage"
+                />
+              </div>
+              <div>
+                <Label htmlFor="editPaymentMethod">Mode de règlement</Label>
+                <select
+                  id="editPaymentMethod"
+                  value={editPaymentMethod}
+                  onChange={(e) => setEditPaymentMethod(e.target.value)}
+                  className="w-full rounded-lg border p-2 text-sm bg-white"
+                >
+                  <option value="CASH">Espèces</option>
+                  <option value="MOBILE_MONEY">MoMo</option>
+                  <option value="CARD">Carte</option>
+                  <option value="OTHER">Autre</option>
+                </select>
+              </div>
+
+              {editError && <p className="text-sm text-red-600">{editError}</p>}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setEditingReceipt(null)} disabled={savingEdit}>
+                Annuler
+              </Button>
+              <Button
+                className="flex-1 bg-slate-900 hover:bg-slate-800 text-white"
+                onClick={saveEditReceipt}
+                disabled={savingEdit}
+              >
+                {savingEdit ? 'Enregistrement…' : 'Enregistrer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
