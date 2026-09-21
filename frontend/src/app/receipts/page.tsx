@@ -467,6 +467,83 @@ function ReceiptsContent() {
     setTimeout(() => { w.print(); w.close(); }, 300);
   };
 
+  // Impression de la liste des reçus affichés (respecte le filtre de
+  // recherche courant) avec le montant total cumulé en bas de liste.
+  const printReceiptsList = (list: Receipt[]) => {
+    if (list.length === 0) return;
+    const currency = selectedStore?.currency || list[0]?.currency || 'XOF';
+    const storeLabel = getSelectedStoreLabel();
+    const grandTotal = list.reduce((sum, r) => sum + getTotalAmount(r), 0);
+
+    const html = `
+      <html>
+        <head>
+          <title>Liste des reçus — ${escapeHtml(storeLabel)}</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; padding: 20px; color: #111; }
+            h1, h2 { margin: 0; }
+            .header { text-align: center; margin-bottom: 12px; line-height: 1.4; }
+            .header p { margin: 2px 0; }
+            .divider { margin: 16px 0; border-top: 2px solid #111; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; font-size: 0.85rem; }
+            th { text-align: left; }
+            td.num, th.num { text-align: right; }
+            tfoot td { border-top: 2px solid #111; border-bottom: none; font-weight: bold; font-size: 1rem; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${escapeHtml(storeLabel)}</h1>
+            <p>Liste des reçus — ${escapeHtml(label)}</p>
+          </div>
+          <div class="divider"></div>
+          <table>
+            <thead>
+              <tr>
+                <th>Facture N°</th>
+                <th>Date & Heure</th>
+                <th>Caissier</th>
+                <th>Client</th>
+                <th class="num">Montant</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list
+                .map((r) => {
+                  const date = r.createdAt || r.date
+                    ? new Date(r.createdAt || r.date!).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' })
+                    : '—';
+                  return `
+                    <tr>
+                      <td>${escapeHtml(getReceiptNumber(r))}</td>
+                      <td>${escapeHtml(date)}</td>
+                      <td>${escapeHtml(getCashierName(r))}</td>
+                      <td>${escapeHtml(r.customerName || 'Client de passage')}</td>
+                      <td class="num">${escapeHtml(getTotalAmount(r).toFixed(2))} ${escapeHtml(currency)}</td>
+                    </tr>
+                  `;
+                })
+                .join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4">Total (${list.length} reçu${list.length > 1 ? 's' : ''})</td>
+                <td class="num">${escapeHtml(grandTotal.toFixed(2))} ${escapeHtml(currency)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </body>
+      </html>
+    `;
+    const w = window.open('', '_blank', 'width=800,height=900');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); w.close(); }, 300);
+  };
+
   const filteredReceipts = receipts.filter((r) => {
     const query = searchQuery.toLowerCase();
     const number = getReceiptNumber(r).toLowerCase();
@@ -581,14 +658,25 @@ function ReceiptsContent() {
                     Magasin actif : <strong className="text-slate-800">{getSelectedStoreLabel()}</strong> — {label}
                   </CardDescription>
                 </div>
-                <div className="relative w-full md:w-72">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <Input
-                    placeholder="Rechercher (N°, Caissier, Client...)"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                  <div className="relative w-full md:w-72">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="Rechercher (N°, Caissier, Client...)"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 shrink-0"
+                    disabled={filteredReceipts.length === 0}
+                    onClick={() => printReceiptsList(filteredReceipts)}
+                  >
+                    <Printer className="w-4 h-4" /> Imprimer la liste
+                  </Button>
                 </div>
               </div>
 
