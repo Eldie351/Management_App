@@ -51,6 +51,7 @@ export default function ProductDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const productId = params?.id;
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   const [details, setDetails] = useState<ProductDetailsResponse | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -82,7 +83,7 @@ export default function ProductDetailsPage() {
       }
 
       try {
-        const res = await fetch(`http://localhost:3001/products/${productId}/details`, {
+        const res = await fetch(`${API}/products/${productId}/details`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -113,7 +114,7 @@ export default function ProductDetailsPage() {
     if (productId) {
       fetchDetails();
     }
-  }, [productId, router]);
+  }, [productId, router, API]);
 
   // If the user is a cashier, forbid access to the product details page
   useEffect(() => {
@@ -146,7 +147,7 @@ export default function ProductDetailsPage() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch(`http://localhost:3001/products/${productId}`, {
+      const res = await fetch(`${API}/products/${productId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -172,7 +173,7 @@ export default function ProductDetailsPage() {
   const token = localStorage.getItem('access_token');
 
   try {
-    const res = await fetch(`http://localhost:3001/products/${productId}`, {
+    const res = await fetch(`${API}/products/${productId}`, {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -192,7 +193,7 @@ export default function ProductDetailsPage() {
     if (!res.ok) throw new Error(data.message || 'Échec de la modification.');
 
     setIsEditModalOpen(false);
-    const refreshed = await fetch(`http://localhost:3001/products/${productId}/details`, {
+    const refreshed = await fetch(`${API}/products/${productId}/details`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
@@ -214,7 +215,7 @@ export default function ProductDetailsPage() {
     const token = localStorage.getItem('access_token');
 
     try {
-      const res = await fetch(`http://localhost:3001/products/${productId}/recharge`, {
+      const res = await fetch(`${API}/products/${productId}/recharge`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -228,7 +229,7 @@ export default function ProductDetailsPage() {
 
       setIsRechargeModalOpen(false);
       setRechargeQty(0);
-      const refreshed = await fetch(`http://localhost:3001/products/${productId}/details`, {
+      const refreshed = await fetch(`${API}/products/${productId}/details`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });

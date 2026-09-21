@@ -56,7 +56,8 @@ export default function StaffPage() {
 
     const fetchStaff = async () => {
       try {
-        const response = await fetch('http://localhost:3001/users/staff', {
+        const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+        const response = await fetch(`${API}/users/staff`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${token}`,
@@ -126,7 +127,8 @@ export default function StaffPage() {
     setDeletingId(id);
 
     try {
-      const response = await fetch(`http://localhost:3001/users/${id}`, {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${API}/users/${id}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
