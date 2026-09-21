@@ -472,7 +472,13 @@ function ReceiptsContent() {
     const number = getReceiptNumber(r).toLowerCase();
     const cashier = getCashierName(r).toLowerCase();
     const store = getStoreName(r).toLowerCase();
-    return number.includes(query) || cashier.includes(query) || store.includes(query);
+    const customer = (r.customerName || 'Client de passage').toLowerCase();
+    return (
+      number.includes(query) ||
+      cashier.includes(query) ||
+      store.includes(query) ||
+      customer.includes(query)
+    );
   });
 
   const getSelectedStoreLabel = () => {
@@ -578,7 +584,7 @@ function ReceiptsContent() {
                 <div className="relative w-full md:w-72">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <Input
-                    placeholder="Rechercher (N°, Caissier...)"
+                    placeholder="Rechercher (N°, Caissier, Client...)"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-9"
