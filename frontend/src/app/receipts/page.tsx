@@ -713,6 +713,7 @@ function ReceiptsContent() {
                       <TableHead>Date & Heure</TableHead>
                       <TableHead>Magasin</TableHead>
                       <TableHead>Caissier</TableHead>
+                      <TableHead>Client</TableHead>
                       <TableHead className="text-right">Montant Total</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
@@ -733,6 +734,7 @@ function ReceiptsContent() {
                         </TableCell>
                         <TableCell className="font-medium text-slate-700">{getStoreName(r)}</TableCell>
                         <TableCell className="text-slate-700">{getCashierName(r)}</TableCell>
+                        <TableCell className="text-slate-700">{r.customerName || 'Client de passage'}</TableCell>
                         <TableCell className="text-right font-mono font-bold text-slate-900">
                           {getTotalAmount(r).toFixed(2)} {getStoreObj(r)?.currency || r.currency || 'XOF'}
                         </TableCell>
