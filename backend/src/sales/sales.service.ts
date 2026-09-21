@@ -5,7 +5,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { UpdateSaleDto } from './dto/update-sale.dto';
 import { DiscountType, MovementType } from '@prisma/client';
 import { assertStoreAccess } from '../common/utils/store-access.util';
 
@@ -14,6 +16,7 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   async createSale(userId: number, dto: CreateSaleDto) {
@@ -238,6 +241,47 @@ export class SalesService {
     }
 
     return sale;
+  }
+
+  /**
+   * Modification a posteriori d'un reçu, réservée à l'ADMIN (voir
+   * SalesController). Ne touche jamais aux articles/montants/stock déjà
+   * enregistrés — seuls le nom du client et le mode de paiement sont
+   * corrigibles (voir UpdateSaleDto).
+   */
+  async updateSale(id: number, dto: UpdateSaleDto, actorUserId: number) {
+    const sale = await this.findOne(id);
+
+    const data: { customerName?: string | null; paymentMethod?: typeof dto.paymentMethod } = {};
+    if (dto.customerName !== undefined) {
+      data.customerName = dto.customerName.trim() || null;
+    }
+    if (dto.paymentMethod !== undefined) {
+      data.paymentMethod = dto.paymentMethod;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return sale;
+    }
+
+    const updated = await this.prisma.sale.update({
+      where: { id },
+      data,
+      include: {
+        items: { include: { product: true } },
+        user: { select: { id: true, name: true, email: true } },
+        store: true,
+      },
+    });
+
+    await this.auditLogService.log(
+      actorUserId,
+      `a modifié le reçu ${sale.invoiceNumber}`,
+      'Sale',
+      id,
+    );
+
+    return updated;
   }
 
   async deleteSale(id: number, actorUserId: number) {
