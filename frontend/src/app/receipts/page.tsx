@@ -404,7 +404,7 @@ function ReceiptsContent() {
     const totalPaid = getTotalAmount(sale);
     const amountReceived = Number(sale.amountReceived ?? 0);
     const changeAmount = Number(sale.changeAmount ?? 0);
-    const paymentMethodLabel = sale.paymentMethod === 'CASH' ? 'Espèces' : sale.paymentMethod === 'MOBILE_MONEY' ? 'MoMo' : sale.paymentMethod === 'CARD' ? 'Carte' : sale.paymentMethod || 'Espèces';
+    const paymentMethodLabel = sale.paymentMethod === 'CASH' ? 'Espèces' : sale.paymentMethod === 'MOBILE_MONEY' ? 'MoMo' : sale.paymentMethod === 'CARD' ? 'Carte' : sale.paymentMethod === 'CHECK' ? 'Chèque' : sale.paymentMethod || 'Espèces';
 
     const html = `
       <html>
@@ -933,7 +933,7 @@ function ReceiptsContent() {
         const totalPaid = getTotalAmount(selectedReceipt);
         const amountReceived = Number(selectedReceipt.amountReceived ?? 0);
         const changeAmount = Number(selectedReceipt.changeAmount ?? 0);
-        const paymentMethodLabel = selectedReceipt.paymentMethod === 'CASH' ? 'Espèces' : selectedReceipt.paymentMethod === 'MOBILE_MONEY' ? 'MoMo' : selectedReceipt.paymentMethod === 'CARD' ? 'Carte' : selectedReceipt.paymentMethod || 'Espèces';
+        const paymentMethodLabel = selectedReceipt.paymentMethod === 'CASH' ? 'Espèces' : selectedReceipt.paymentMethod === 'MOBILE_MONEY' ? 'MoMo' : selectedReceipt.paymentMethod === 'CARD' ? 'Carte' : selectedReceipt.paymentMethod === 'CHECK' ? 'Chèque' : selectedReceipt.paymentMethod || 'Espèces';
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -1100,6 +1100,7 @@ function ReceiptsContent() {
                   <option value="CASH">Espèces</option>
                   <option value="MOBILE_MONEY">MoMo</option>
                   <option value="CARD">Carte</option>
+                  <option value="CHECK">Chèque</option>
                   <option value="OTHER">Autre</option>
                 </select>
               </div>

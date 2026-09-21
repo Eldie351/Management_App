@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Printer, X } from 'lucide-react';
 
-type PaymentMethodType = 'CASH' | 'CARD' | 'MOBILE_MONEY' | 'OTHER';
+type PaymentMethodType = 'CASH' | 'CARD' | 'MOBILE_MONEY' | 'CHECK' | 'OTHER';
 type DiscountType = 'AMOUNT' | 'PERCENT';
 
 interface Store {
@@ -721,6 +721,7 @@ export default function SalesPage() {
                               <option value="CASH">Espèces</option>
                               <option value="MOBILE_MONEY">MoMo</option>
                               <option value="CARD">Carte</option>
+                              <option value="CHECK">Chèque</option>
                               <option value="OTHER">Autre</option>
                             </select>
                           </div>

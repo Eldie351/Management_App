@@ -99,6 +99,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   CASH: 'Espèces',
   CARD: 'Carte',
   MOBILE_MONEY: 'Mobile Money',
+  CHECK: 'Chèque',
   TRANSFER: 'Virement',
 };
 
