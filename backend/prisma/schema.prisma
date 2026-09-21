@@ -216,6 +216,7 @@ model Sale {
   discountAmount Float         @default(0)
   totalAmount    Float
   paymentMethod  PaymentMethod @default(CASH)
+  customerName   String?
   createdAt      DateTime      @default(now())
 
   userId        Int
