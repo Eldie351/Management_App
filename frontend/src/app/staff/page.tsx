@@ -9,6 +9,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getStoredUserRole } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
+interface Store {
+  id: number;
+  name: string;
+  location?: string | null;
+}
+
 interface StoreAssignment {
   store: {
     id: number;
@@ -33,12 +39,20 @@ interface StoreGroup {
 
 export default function StaffPage() {
   const router = useRouter();
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
+
+  // Édition des magasins affectés à un membre du staff
+  const [editingStoresFor, setEditingStoresFor] = useState<StaffMember | null>(null);
+  const [selectedStoreIds, setSelectedStoreIds] = useState<number[]>([]);
+  const [savingStores, setSavingStores] = useState(false);
+  const [storesError, setStoresError] = useState('');
 
   useEffect(() => {
     const role = getStoredUserRole();
@@ -56,7 +70,6 @@ export default function StaffPage() {
 
     const fetchStaff = async () => {
       try {
-        const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
         const response = await fetch(`${API}/users/staff`, {
           method: 'GET',
           headers: {
@@ -79,8 +92,27 @@ export default function StaffPage() {
       }
     };
 
+    const fetchStores = async () => {
+      try {
+        const response = await fetch(`${API}/stores`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        setStores(Array.isArray(data) ? data : []);
+      } catch {
+        // La liste des magasins n'est utilisée que pour le formulaire
+        // d'affectation ; une erreur ici ne doit pas bloquer la page.
+      }
+    };
+
     fetchStaff();
-  }, [router]);
+    fetchStores();
+  }, [router, API]);
 
   // 1. ÉCRAN DE CHARGEMENT PLEIN ÉCRAN
   // Tant que l'API n'a pas répondu, la page n'affiche RIEN d'autre que les points bleus centrés
@@ -127,7 +159,6 @@ export default function StaffPage() {
     setDeletingId(id);
 
     try {
-      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
       const response = await fetch(`${API}/users/${id}`, {
         method: 'DELETE',
         headers: {
@@ -147,6 +178,54 @@ export default function StaffPage() {
       setDeleteError(err.message || 'Erreur lors de la suppression.');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const openStoresEditor = (member: StaffMember) => {
+    setStoresError('');
+    setSelectedStoreIds((member.storeAssignments ?? []).map((a) => a.store.id));
+    setEditingStoresFor(member);
+  };
+
+  const saveStoreAssignments = async () => {
+    if (!editingStoresFor) return;
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    if (selectedStoreIds.length === 0) {
+      setStoresError('Sélectionnez au moins un magasin.');
+      return;
+    }
+
+    setSavingStores(true);
+    setStoresError('');
+
+    try {
+      const response = await fetch(`${API}/users/${editingStoresFor.id}/stores`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ storeIds: selectedStoreIds }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || "Impossible de mettre à jour les magasins affectés.");
+      }
+
+      setStaff((current) =>
+        current.map((member) => (member.id === data.id ? { ...member, ...data } : member)),
+      );
+      setEditingStoresFor(null);
+    } catch (err: unknown) {
+      setStoresError(err instanceof Error ? err.message : 'Erreur lors de la mise à jour.');
+    } finally {
+      setSavingStores(false);
     }
   };
 
@@ -248,14 +327,23 @@ export default function StaffPage() {
                                 })}
                               </TableCell>
                               <TableCell className="text-right">
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => deleteStaff(member.id)}
-                                  disabled={deletingId === member.id}
-                                >
-                                  {deletingId === member.id ? 'Suppression...' : 'Supprimer'}
-                                </Button>
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openStoresEditor(member)}
+                                  >
+                                    Magasins
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => deleteStaff(member.id)}
+                                    disabled={deletingId === member.id}
+                                  >
+                                    {deletingId === member.id ? 'Suppression...' : 'Supprimer'}
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -269,6 +357,60 @@ export default function StaffPage() {
           </Card>
         </div>
       </main>
+
+      {/* MODAL D'AFFECTATION DES MAGASINS */}
+      {editingStoresFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-lg font-bold">Magasins affectés</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              {editingStoresFor.name} — {editingStoresFor.role === 'MANAGER' ? 'Manager' : 'Caissier'}
+            </p>
+
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
+              {stores.length > 0 ? (
+                stores.map((store) => (
+                  <label key={store.id} className="flex items-center gap-3 py-1 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={selectedStoreIds.includes(store.id)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSelectedStoreIds((current) =>
+                          checked ? [...current, store.id] : current.filter((id) => id !== store.id),
+                        );
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>
+                      {store.name}
+                      {store.location ? ` — ${store.location}` : ''}
+                    </span>
+                  </label>
+                ))
+              ) : (
+                <p className="text-xs text-gray-400">Aucun magasin disponible.</p>
+              )}
+            </div>
+
+            {storesError && <p className="mt-3 text-sm text-red-600">{storesError}</p>}
+
+            <div className="mt-6 flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setEditingStoresFor(null)}
+                disabled={savingStores}
+              >
+                Annuler
+              </Button>
+              <Button className="flex-1" onClick={saveStoreAssignments} disabled={savingStores}>
+                {savingStores ? 'Enregistrement…' : 'Enregistrer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
