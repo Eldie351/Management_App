@@ -8,8 +8,36 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
+import { DeleteSaleDto } from './dto/delete-sale.dto';
 import { DiscountType, MovementType } from '@prisma/client';
 import { assertStoreAccess } from '../common/utils/store-access.util';
+
+const SALE_INCLUDE = {
+  items: { include: { product: true } },
+  user: { select: { id: true, name: true, email: true } },
+  store: true,
+} as const;
+
+/**
+ * Calcul sécurisé de la remise, appliquée uniquement sur un sous-total
+ * recalculé côté serveur (jamais sur une valeur fournie par le client).
+ */
+function computeDiscount(
+  subtotal: number,
+  discountType: DiscountType | null | undefined,
+  rawDiscountValue: number,
+) {
+  const discountValue = discountType
+    ? Math.max(0, discountType === DiscountType.PERCENT ? Math.min(rawDiscountValue, 100) : rawDiscountValue)
+    : 0;
+  const discountAmount = discountType
+    ? Math.min(
+        discountType === DiscountType.PERCENT ? (discountValue / 100) * subtotal : discountValue,
+        subtotal,
+      )
+    : 0;
+  return { discountValue, discountAmount, totalAmount: subtotal - discountAmount };
+}
 
 @Injectable()
 export class SalesService {
@@ -119,21 +147,15 @@ export class SalesService {
         });
       }
 
-      // 3bis. Calcul sécurisé de la remise, appliquée uniquement sur le
-      // sous-total recalculé côté serveur (jamais sur une valeur fournie par le client)
+      // 3bis. Calcul sécurisé de la remise (voir computeDiscount)
       const subtotal = calculatedTotalAmount;
       const discountType = dto.discountType;
-      const rawDiscountValue = dto.discountValue ?? 0;
-      const discountValue = discountType
-        ? Math.max(0, discountType === DiscountType.PERCENT ? Math.min(rawDiscountValue, 100) : rawDiscountValue)
-        : 0;
-      const discountAmount = discountType
-        ? Math.min(
-            discountType === DiscountType.PERCENT ? (discountValue / 100) * subtotal : discountValue,
-            subtotal,
-          )
-        : 0;
-      calculatedTotalAmount = subtotal - discountAmount;
+      const { discountValue, discountAmount, totalAmount } = computeDiscount(
+        subtotal,
+        discountType,
+        dto.discountValue ?? 0,
+      );
+      calculatedTotalAmount = totalAmount;
 
       // 4. Génération d'un numéro de facture unique en séquence par magasin et par année
       const year = new Date().getFullYear();
@@ -229,11 +251,7 @@ export class SalesService {
   async findOne(id: number) {
     const sale = await this.prisma.sale.findUnique({
       where: { id },
-      include: {
-        items: { include: { product: true } },
-        user: { select: { id: true, name: true, email: true } },
-        store: true,
-      },
+      include: SALE_INCLUDE,
     });
 
     if (!sale) {
@@ -244,47 +262,131 @@ export class SalesService {
   }
 
   /**
-   * Modification a posteriori d'un reçu, réservée à l'ADMIN (voir
-   * SalesController). Ne touche jamais aux articles/montants/stock déjà
-   * enregistrés — seuls le nom du client et le mode de paiement sont
-   * corrigibles (voir UpdateSaleDto).
+   * Modification complète a posteriori d'un reçu, réservée à l'ADMIN (voir
+   * SalesController). Si `dto.items` est fourni, il remplace la liste des
+   * articles et le stock est ajusté produit par produit de la DIFFÉRENCE
+   * entre l'ancienne et la nouvelle quantité (mouvement ADJUSTMENT). Les
+   * montants sont toujours recalculés côté serveur. Le motif est obligatoire
+   * et consigné dans le journal d'audit.
    */
   async updateSale(id: number, dto: UpdateSaleDto, actorUserId: number) {
     const sale = await this.findOne(id);
 
-    const data: { customerName?: string | null; paymentMethod?: typeof dto.paymentMethod } = {};
-    if (dto.customerName !== undefined) {
-      data.customerName = dto.customerName.trim() || null;
-    }
-    if (dto.paymentMethod !== undefined) {
-      data.paymentMethod = dto.paymentMethod;
-    }
+    return this.prisma.$transaction(async (tx) => {
+      let items = sale.items.map((it) => ({
+        productId: it.productId,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        total: it.total,
+      }));
 
-    if (Object.keys(data).length === 0) {
-      return sale;
-    }
+      if (dto.items) {
+        const oldQtyByProduct = new Map<number, number>();
+        for (const it of sale.items) {
+          oldQtyByProduct.set(it.productId, (oldQtyByProduct.get(it.productId) ?? 0) + it.quantity);
+        }
+        const newQtyByProduct = new Map<number, number>();
+        for (const it of dto.items) {
+          newQtyByProduct.set(it.productId, (newQtyByProduct.get(it.productId) ?? 0) + it.quantity);
+        }
 
-    const updated = await this.prisma.sale.update({
-      where: { id },
-      data,
-      include: {
-        items: { include: { product: true } },
-        user: { select: { id: true, name: true, email: true } },
-        store: true,
-      },
+        const productIds = Array.from(new Set([...oldQtyByProduct.keys(), ...newQtyByProduct.keys()]));
+        const dbProducts = await tx.product.findMany({ where: { id: { in: productIds } } });
+        const productMap = new Map(dbProducts.map((p) => [p.id, p]));
+
+        for (const productId of newQtyByProduct.keys()) {
+          const product = productMap.get(productId);
+          // Un produit archivé depuis la vente reste accepté s'il figurait
+          // déjà sur le reçu (on ne force pas à le retirer pour corriger
+          // autre chose), mais ne peut pas y être ajouté.
+          if (!product || (product.deletedAt && !oldQtyByProduct.has(productId))) {
+            throw new NotFoundException(`Produit ID ${productId} introuvable ou archivé.`);
+          }
+          if (product.storeId !== sale.storeId) {
+            throw new BadRequestException(
+              `Le produit "${product.name}" n'appartient pas au magasin de ce reçu.`,
+            );
+          }
+        }
+
+        for (const productId of productIds) {
+          const delta = (newQtyByProduct.get(productId) ?? 0) - (oldQtyByProduct.get(productId) ?? 0);
+          if (delta === 0) continue;
+
+          const product = productMap.get(productId);
+          if (!product) continue; // produit supprimé définitivement : rien à restaurer
+
+          if (delta > 0 && product.quantity < delta) {
+            throw new BadRequestException(
+              `Stock insuffisant pour "${product.name}". Disponible: ${product.quantity}, Supplément demandé: ${delta}`,
+            );
+          }
+
+          await tx.product.update({
+            where: { id: productId },
+            data: { quantity: { decrement: delta } },
+          });
+
+          await tx.stockMovement.create({
+            data: {
+              quantity: -delta,
+              type: MovementType.ADJUSTMENT,
+              note: `Modification du reçu ${sale.invoiceNumber}`,
+              productId,
+              userId: actorUserId,
+              storeId: sale.storeId,
+            },
+          });
+        }
+
+        items = dto.items.map((it) => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          total: it.unitPrice * it.quantity,
+        }));
+
+        await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
+        await tx.saleItem.createMany({
+          data: items.map((it) => ({ ...it, saleId: sale.id })),
+        });
+      }
+
+      const subtotal = items.reduce((sum, it) => sum + it.total, 0);
+      const discountType = dto.discountType !== undefined ? dto.discountType : sale.discountType;
+      const { discountValue, discountAmount, totalAmount } = computeDiscount(
+        subtotal,
+        discountType,
+        dto.discountValue ?? sale.discountValue,
+      );
+
+      const updated = await tx.sale.update({
+        where: { id },
+        data: {
+          subtotal,
+          discountType,
+          discountValue,
+          discountAmount,
+          totalAmount,
+          ...(dto.customerName !== undefined && { customerName: dto.customerName.trim() || null }),
+          ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
+        },
+        include: SALE_INCLUDE,
+      });
+
+      await this.auditLogService.log(
+        actorUserId,
+        `a modifié le reçu ${sale.invoiceNumber} — motif : ${dto.reason}`,
+        'Sale',
+        id,
+        tx,
+      );
+
+      return updated;
     });
-
-    await this.auditLogService.log(
-      actorUserId,
-      `a modifié le reçu ${sale.invoiceNumber}`,
-      'Sale',
-      id,
-    );
-
-    return updated;
   }
 
-  async deleteSale(id: number, actorUserId: number) {
+  async deleteSale(id: number, dto: DeleteSaleDto, actorUserId: number) {
     const sale = await this.findOne(id);
 
     return this.prisma.$transaction(async (tx) => {
@@ -309,7 +411,18 @@ export class SalesService {
       }
 
       await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
-      return tx.sale.delete({ where: { id: sale.id } });
+      const deleted = await tx.sale.delete({ where: { id: sale.id } });
+
+      await this.auditLogService.log(
+        actorUserId,
+        `a supprimé le reçu ${sale.invoiceNumber} — motif : ${dto.reason}`,
+        'Sale',
+        sale.id,
+        tx,
+      );
+
+      return deleted;
     });
   }
+
 }
