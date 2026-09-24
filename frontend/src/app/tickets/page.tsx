@@ -47,6 +47,7 @@ interface Ticket {
   product?: { id: number; name: string; sku?: string | null; quantity: number } | null;
   sale?: { id: number; invoiceNumber: string; totalAmount: number; createdAt: string } | null;
   saleInvoiceNumber?: string | null;
+  requestedAction?: 'UPDATE' | 'DELETE' | null;
   createdBy: { id: number; name: string; role: AppRole };
   recipient: { id: number; name: string; role: AppRole };
   resolvedBy?: { id: number; name: string } | null;
@@ -72,6 +73,12 @@ const STATUS_LABEL: Record<TicketStatus, { label: string; className: string }> =
   APPROVED: { label: 'Approuvé', className: 'border-green-200 bg-green-50 text-green-700' },
   CLOSED: { label: 'Fermé', className: 'border-gray-200 bg-gray-50 text-gray-600' },
 };
+
+const REQUESTED_ACTION_LABEL = { UPDATE: 'Modification demandée', DELETE: 'Suppression demandée' } as const;
+
+// Un signalement de reçu avec une action demandée est validé par l'action
+// elle-même (l'admin modifie / supprime le reçu), pas par le bouton "Valider".
+const isValidatedByAction = (ticket: Ticket) => ticket.type === 'RECEIPT' && !!ticket.requestedAction;
 
 function getTicketSubject(ticket: Ticket): string {
   if (ticket.type === 'RECEIPT') {
@@ -456,6 +463,15 @@ function TicketsContent() {
                           )}
                           <TableCell className="font-medium">
                             {getTicketSubject(ticket)}
+                            {ticket.type === 'RECEIPT' && ticket.requestedAction && (
+                              <div
+                                className={`text-xs font-semibold ${
+                                  ticket.requestedAction === 'DELETE' ? 'text-red-600' : 'text-amber-600'
+                                }`}
+                              >
+                                {REQUESTED_ACTION_LABEL[ticket.requestedAction]}
+                              </div>
+                            )}
                             {ticket.type === 'RECEIPT' ? (
                               <div className="text-xs text-gray-400">
                                 {ticket.sale ? (
@@ -511,12 +527,26 @@ function TicketsContent() {
                             <TableCell className="text-right space-x-2">
                               {canResolveTicket(ticket) ? (
                                 <>
-                                  <Button
-                                    size="sm"
-                                    onClick={() => openResolveModal(ticket, 'approve')}
-                                  >
-                                    Valider
-                                  </Button>
+                                  {isValidatedByAction(ticket) ? (
+                                    ticket.sale && (
+                                      <Button
+                                        size="sm"
+                                        title="Le ticket sera validé une fois le reçu modifié ou supprimé"
+                                        onClick={() =>
+                                          router.push(`/receipts?storeId=${ticket.store?.id ?? selectedStoreId}&saleId=${ticket.sale!.id}`)
+                                        }
+                                      >
+                                        Traiter
+                                      </Button>
+                                    )
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => openResolveModal(ticket, 'approve')}
+                                    >
+                                      Valider
+                                    </Button>
+                                  )}
                                   <Button
                                     size="sm"
                                     variant="outline"

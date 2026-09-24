@@ -241,6 +241,7 @@ function ReceiptsContent() {
   const [colleagues, setColleagues] = useState<ColleagueGroup[]>([]);
   const [reportingReceipt, setReportingReceipt] = useState<Receipt | null>(null);
   const [reportRecipientId, setReportRecipientId] = useState('');
+  const [reportAction, setReportAction] = useState<'' | 'UPDATE' | 'DELETE'>('');
   const [reportJustification, setReportJustification] = useState('');
   const [isReporting, setIsReporting] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -804,6 +805,7 @@ function ReceiptsContent() {
   const openReportReceipt = (r: Receipt) => {
     setReportError('');
     setReportJustification('');
+    setReportAction('');
     setReportRecipientId(reportRecipients.length === 1 ? String(reportRecipients[0].id) : '');
     setReportingReceipt(r);
   };
@@ -813,6 +815,10 @@ function ReceiptsContent() {
     setReportError('');
     if (!reportRecipientId) {
       setReportError('Veuillez choisir un administrateur destinataire.');
+      return;
+    }
+    if (!reportAction) {
+      setReportError('Veuillez indiquer si le reçu doit être modifié ou supprimé.');
       return;
     }
     if (!reportJustification.trim()) {
@@ -829,6 +835,7 @@ function ReceiptsContent() {
         body: JSON.stringify({
           saleId: Number(reportingReceipt.id),
           recipientId: Number(reportRecipientId),
+          requestedAction: reportAction,
           justification: reportJustification.trim(),
         }),
       });
@@ -1117,7 +1124,6 @@ function ReceiptsContent() {
                     <TableRow>
                       <TableHead>Facture N°</TableHead>
                       <TableHead>Date & Heure</TableHead>
-                      <TableHead>Magasin</TableHead>
                       <TableHead>Caissier</TableHead>
                       <TableHead>Client</TableHead>
                       <TableHead className="text-right">Montant Total</TableHead>
@@ -1138,7 +1144,6 @@ function ReceiptsContent() {
                               })
                             : '—'}
                         </TableCell>
-                        <TableCell className="font-medium text-slate-700">{getStoreName(r)}</TableCell>
                         <TableCell className="text-slate-700">{getCashierName(r)}</TableCell>
                         <TableCell className="text-slate-700">{r.customerName || 'Client de passage'}</TableCell>
                         <TableCell className="text-right font-mono font-bold text-slate-900">
@@ -1146,6 +1151,25 @@ function ReceiptsContent() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setSelectedReceipt(r)}
+                              className="gap-1 bg-slate-900 text-white hover:bg-slate-800"
+                            >
+                              <ReceiptIcon className="w-4 h-4" /> Reçu
+                            </Button>
+                            {canReport && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openReportReceipt(r)}
+                                className="gap-1"
+                                title="Signaler un problème sur ce reçu (doublon, erreur…)"
+                              >
+                                <Flag className="w-4 h-4" /> Signaler
+                              </Button>
+                            )}
                             {isAdmin && (
                               <>
                                 <Button
@@ -1167,25 +1191,6 @@ function ReceiptsContent() {
                                 </Button>
                               </>
                             )}
-                            {canReport && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openReportReceipt(r)}
-                                className="gap-1"
-                                title="Signaler un problème sur ce reçu (doublon, erreur…)"
-                              >
-                                <Flag className="w-4 h-4" /> Signaler
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => setSelectedReceipt(r)}
-                              className="gap-1 bg-slate-900 text-white hover:bg-slate-800"
-                            >
-                              <ReceiptIcon className="w-4 h-4" /> Reçu
-                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1324,6 +1329,18 @@ function ReceiptsContent() {
                 <Button variant="outline" className="flex-1" onClick={() => setSelectedReceipt(null)}>
                   Fermer
                 </Button>
+                <Button className="flex-1 gap-2 bg-slate-900 hover:bg-slate-800 text-white" onClick={() => printReceipt(selectedReceipt)}>
+                  <Printer className="w-4 h-4" /> Imprimer
+                </Button>
+                {canReport && (
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-2"
+                    onClick={() => openReportReceipt(selectedReceipt)}
+                  >
+                    <Flag className="w-4 h-4" /> Signaler
+                  </Button>
+                )}
                 {isAdmin && (
                   <>
                     <Button
@@ -1343,18 +1360,6 @@ function ReceiptsContent() {
                     </Button>
                   </>
                 )}
-                {canReport && (
-                  <Button
-                    variant="outline"
-                    className="flex-1 gap-2"
-                    onClick={() => openReportReceipt(selectedReceipt)}
-                  >
-                    <Flag className="w-4 h-4" /> Signaler
-                  </Button>
-                )}
-                <Button className="flex-1 gap-2 bg-slate-900 hover:bg-slate-800 text-white" onClick={() => printReceipt(selectedReceipt)}>
-                  <Printer className="w-4 h-4" /> Imprimer
-                </Button>
               </div>
             </div>
           </div>
@@ -1616,8 +1621,8 @@ function ReceiptsContent() {
 
             <h2 className="font-bold text-lg mb-1">Signaler un problème</h2>
             <p className="text-sm text-slate-500 mb-4">
-              Facture N° {getReceiptNumber(reportingReceipt)} — un ticket sera adressé à un administrateur, qui pourra
-              corriger ou supprimer le reçu.
+              Facture N° {getReceiptNumber(reportingReceipt)} — un ticket sera adressé à un administrateur. Il sera
+              validé dès que l&apos;administrateur aura effectué l&apos;action demandée.
             </p>
 
             <div className="space-y-4">
@@ -1637,6 +1642,30 @@ function ReceiptsContent() {
                 {reportRecipients.length === 0 && (
                   <p className="mt-1 text-xs text-amber-600">Aucun administrateur trouvé pour ce magasin.</p>
                 )}
+              </div>
+              <div>
+                <Label>Action demandée *</Label>
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  {([
+                    ['UPDATE', 'Modifier le reçu', Pencil],
+                    ['DELETE', 'Supprimer le reçu', Trash2],
+                  ] as const).map(([value, text, Icon]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setReportAction(value)}
+                      className={`flex items-center justify-center gap-2 rounded-lg border p-2 text-sm ${
+                        reportAction === value
+                          ? value === 'DELETE'
+                            ? 'border-red-500 bg-red-50 text-red-700'
+                            : 'border-slate-900 bg-slate-900 text-white'
+                          : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" /> {text}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <Label htmlFor="reportJustification">Description du problème *</Label>
