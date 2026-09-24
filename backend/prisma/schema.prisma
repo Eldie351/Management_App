@@ -53,6 +53,13 @@ enum TicketType {
   RECEIPT
 }
 
+// Action effectuée par un ADMIN sur un reçu déjà émis (voir ReceiptAction),
+// ou action demandée par un ticket RECEIPT.
+enum ReceiptActionType {
+  UPDATE
+  DELETE
+}
+
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
@@ -89,6 +96,8 @@ model User {
   ticketsReceived Ticket[] @relation("TicketRecipient")
   // Tickets résolus (approuvés/fermés) par cet utilisateur (ADMIN/MANAGER)
   ticketsResolved Ticket[] @relation("TicketResolvedBy")
+  // Modifications / suppressions de reçus effectuées par cet utilisateur (ADMIN)
+  receiptActions  ReceiptAction[]
 }
 
 model ResetToken {
@@ -123,6 +132,7 @@ model Store {
   stockMovements StockMovement[]
   notifications Notification[]
   tickets       Ticket[]
+  receiptActions ReceiptAction[]
 }
 
 model StoreAssignment {
@@ -234,6 +244,7 @@ model Sale {
 
   items         SaleItem[]
   tickets Ticket[]
+  actions ReceiptAction[]
 
   @@index([storeId, createdAt])
   @@index([userId])
@@ -294,6 +305,8 @@ model AuditLog {
 //  - RECEIPT : signalement sur un reçu (saleId obligatoire à la création).
 //    `saleInvoiceNumber` garde une trace du reçu même s'il est supprimé
 //    ensuite (cas typique d'un doublon), saleId repassant alors à NULL.
+//    `requestedAction` indique ce qui est demandé à l'ADMIN : le ticket est
+//    validé automatiquement quand l'ADMIN effectue cette action sur le reçu.
 model Ticket {
   id                Int          @id @default(autoincrement())
   type              TicketType   @default(RESTOCK)
@@ -311,6 +324,7 @@ model Ticket {
   saleId            Int?
   sale              Sale?              @relation(fields: [saleId], references: [id], onDelete: SetNull)
   saleInvoiceNumber String?
+  requestedAction   ReceiptActionType?
 
   createdById  Int
   createdBy    User     @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
@@ -319,9 +333,37 @@ model Ticket {
   resolvedById Int?
   resolvedBy   User?    @relation("TicketResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
 
+  receiptActions ReceiptAction[]
+
   @@index([storeId])
   @@index([productId])
   @@index([saleId])
   @@index([status])
   @@index([recipientId])
+}
+
+// Historique des modifications / suppressions de reçus (page "Historique
+// des actions"). Le numéro de facture et le magasin sont copiés pour rester
+// lisibles après suppression du reçu (saleId repasse alors à NULL).
+// `ticketId` : signalement éventuellement validé par cette action.
+model ReceiptAction {
+  id            Int               @id @default(autoincrement())
+  type          ReceiptActionType
+  reason        String
+  invoiceNumber String
+  totalBefore   Float
+  totalAfter    Float?
+  createdAt     DateTime          @default(now())
+
+  saleId   Int?
+  sale     Sale?   @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  storeId  Int
+  store    Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId   Int
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticketId Int?
+  ticket   Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, createdAt])
+  @@index([saleId])
 }
