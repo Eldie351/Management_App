@@ -8,6 +8,7 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -58,6 +59,20 @@ export class SalesController {
   ) {
     assertStoreAccess(user, storeId, "Vous n'avez pas accès aux ventes de ce magasin.");
     return this.salesService.findAllByStore(storeId);
+  }
+
+  /**
+   * Historique des modifications / suppressions de reçus (motif, auteur,
+   * date, signalement validé). Réservé à l'ADMIN.
+   * `storeId` optionnel : sans lui, tous les magasins de l'utilisateur.
+   */
+  @Get('actions')
+  @Roles(UserRole.ADMIN)
+  async findReceiptActions(@CurrentUser() user: any, @Query('storeId') storeId?: string) {
+    if (storeId) {
+      assertStoreAccess(user, storeId, "Vous n'avez pas accès à ce magasin.");
+    }
+    return this.salesService.findReceiptActions(user, storeId ? Number(storeId) : undefined);
   }
 
   /**

@@ -9,8 +9,15 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
 import { DeleteSaleDto } from './dto/delete-sale.dto';
-import { DiscountType, MovementType } from '@prisma/client';
-import { assertStoreAccess } from '../common/utils/store-access.util';
+import {
+  DiscountType,
+  MovementType,
+  Prisma,
+  ReceiptActionType,
+  TicketStatus,
+  TicketType,
+} from '@prisma/client';
+import { assertStoreAccess, buildStoreIdWhere } from '../common/utils/store-access.util';
 
 const SALE_INCLUDE = {
   items: { include: { product: true } },
@@ -382,6 +389,14 @@ export class SalesService {
         tx,
       );
 
+      await this.recordReceiptAction(tx, {
+        type: ReceiptActionType.UPDATE,
+        sale,
+        reason: dto.reason,
+        totalAfter: totalAmount,
+        actorUserId,
+      });
+
       return updated;
     });
   }
@@ -410,6 +425,16 @@ export class SalesService {
         });
       }
 
+      // Avant la suppression du reçu, tant que les tickets y sont encore
+      // rattachés par saleId.
+      await this.recordReceiptAction(tx, {
+        type: ReceiptActionType.DELETE,
+        sale,
+        reason: dto.reason,
+        totalAfter: null,
+        actorUserId,
+      });
+
       await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
       const deleted = await tx.sale.delete({ where: { id: sale.id } });
 
@@ -425,4 +450,103 @@ export class SalesService {
     });
   }
 
+  /**
+   * Consigne une modification / suppression de reçu dans l'historique
+   * (ReceiptAction) et traite les signalements encore ouverts sur ce reçu :
+   *  - un ticket demandant CETTE action est validé (APPROVED) : c'est
+   *    l'action de l'ADMIN qui valide le ticket, pas un clic sur "Valider".
+   *  - en cas de suppression, un ticket demandant une modification devient
+   *    sans objet et est fermé.
+   */
+  private async recordReceiptAction(
+    tx: Prisma.TransactionClient,
+    params: {
+      type: ReceiptActionType;
+      sale: { id: number; storeId: number; invoiceNumber: string; totalAmount: number };
+      reason: string;
+      totalAfter: number | null;
+      actorUserId: number;
+    },
+  ) {
+    const { type, sale, reason, totalAfter, actorUserId } = params;
+
+    const openTickets = await tx.ticket.findMany({
+      where: { saleId: sale.id, type: TicketType.RECEIPT, status: TicketStatus.OPEN },
+    });
+    const matchingTicket = openTickets.find((t) => t.requestedAction === type);
+
+    await tx.receiptAction.create({
+      data: {
+        type,
+        reason,
+        invoiceNumber: sale.invoiceNumber,
+        totalBefore: sale.totalAmount,
+        totalAfter,
+        saleId: sale.id,
+        storeId: sale.storeId,
+        userId: actorUserId,
+        ticketId: matchingTicket?.id ?? null,
+      },
+    });
+
+    const actionLabel = type === ReceiptActionType.DELETE ? 'supprimé' : 'modifié';
+    for (const ticket of openTickets) {
+      const approved = ticket.requestedAction === type;
+      if (!approved && type !== ReceiptActionType.DELETE) continue;
+
+      await tx.ticket.update({
+        where: { id: ticket.id },
+        data: {
+          status: approved ? TicketStatus.APPROVED : TicketStatus.CLOSED,
+          resolutionNote: approved
+            ? `Reçu ${actionLabel} — motif : ${reason}`
+            : `Reçu supprimé — motif : ${reason}`,
+          resolvedById: actorUserId,
+          resolvedAt: new Date(),
+        },
+      });
+
+      await this.notificationsService.create(
+        sale.storeId,
+        approved ? 'Ticket approuvé' : 'Ticket fermé',
+        approved
+          ? `Le signalement sur le reçu ${sale.invoiceNumber} a été validé : le reçu a été ${actionLabel}.`
+          : `Le signalement sur le reçu ${sale.invoiceNumber} a été fermé : le reçu a été supprimé.`,
+        tx,
+      );
+
+      await this.auditLogService.log(
+        actorUserId,
+        `${approved ? 'a validé' : 'a fermé'} le signalement sur le reçu ${sale.invoiceNumber}`,
+        'Ticket',
+        ticket.id,
+        tx,
+      );
+    }
+  }
+
+  /**
+   * Historique des modifications / suppressions de reçus sur les magasins
+   * de l'utilisateur (ou un seul magasin si `storeId` est fourni).
+   */
+  async findReceiptActions(user: any, storeId?: number) {
+    return this.prisma.receiptAction.findMany({
+      where: buildStoreIdWhere(user, storeId),
+      include: {
+        user: { select: { id: true, name: true } },
+        store: { select: { id: true, name: true, currency: true } },
+        sale: { select: { id: true } },
+        ticket: {
+          select: {
+            id: true,
+            justification: true,
+            createdAt: true,
+            createdBy: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
 }

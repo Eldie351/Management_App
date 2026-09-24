@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { TicketStatus, TicketType, UserRole } from '@prisma/client';
+import { ReceiptActionType, TicketStatus, TicketType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -139,6 +139,7 @@ export class TicketsService {
           storeId: sale.storeId,
           saleId: sale.id,
           saleInvoiceNumber: sale.invoiceNumber,
+          requestedAction: dto.requestedAction,
           justification: dto.justification,
           createdById: user.id,
           recipientId: dto.recipientId,
@@ -149,7 +150,9 @@ export class TicketsService {
       await this.notificationsService.create(
         sale.storeId,
         'Nouveau signalement de reçu',
-        `Un ticket a été ouvert sur le reçu ${sale.invoiceNumber}, adressé à ${recipient.name}.`,
+        `Un ticket a été ouvert sur le reçu ${sale.invoiceNumber} (${
+          dto.requestedAction === ReceiptActionType.DELETE ? 'suppression' : 'modification'
+        } demandée), adressé à ${recipient.name}.`,
         tx,
       );
 
@@ -241,6 +244,19 @@ export class TicketsService {
 
     if (ticket.status !== TicketStatus.OPEN) {
       throw new BadRequestException('Ce ticket a déjà été traité.');
+    }
+
+    // Un signalement de reçu est validé par l'action elle-même (modification
+    // ou suppression du reçu, voir SalesService.recordReceiptAction), jamais
+    // manuellement. Il peut en revanche être fermé (refusé).
+    if (
+      ticket.type === TicketType.RECEIPT &&
+      ticket.requestedAction &&
+      targetStatus === TicketStatus.APPROVED
+    ) {
+      throw new BadRequestException(
+        "Ce signalement sera validé automatiquement une fois l'action demandée effectuée sur le reçu.",
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
