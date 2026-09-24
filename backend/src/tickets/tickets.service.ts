@@ -1,19 +1,32 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { TicketStatus, UserRole } from '@prisma/client';
+import { TicketStatus, TicketType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { assertStoreAccess, buildStoreIdWhere, getAllowedStoreIds } from '../common/utils/store-access.util';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ResolveTicketDto } from './dto/resolve-ticket.dto';
+import { CreateReceiptTicketDto } from './dto/create-receipt-ticket.dto';
 
 const TICKET_INCLUDE = {
   store: { select: { id: true, name: true } },
   product: { select: { id: true, name: true, sku: true, quantity: true } },
+  sale: { select: { id: true, invoiceNumber: true, totalAmount: true, createdAt: true } },
   createdBy: { select: { id: true, name: true, role: true } },
   recipient: { select: { id: true, name: true, role: true } },
   resolvedBy: { select: { id: true, name: true } },
 } as const;
+
+// Libellé de l'objet d'un ticket pour les notifications / le journal d'audit.
+function describeTicketSubject(ticket: {
+  type: TicketType;
+  product?: { name: string } | null;
+  saleInvoiceNumber?: string | null;
+}) {
+  return ticket.type === TicketType.RECEIPT
+    ? `le reçu ${ticket.saleInvoiceNumber ?? ''}`.trim()
+    : `"${ticket.product?.name ?? 'produit supprimé'}"`;
+}
 
 @Injectable()
 export class TicketsService {
@@ -74,6 +87,75 @@ export class TicketsService {
       await this.auditLogService.log(
         user.id,
         `a ouvert un ticket de réapprovisionnement pour "${product.name}" (destinataire : ${recipient.name})`,
+        'Ticket',
+        ticket.id,
+        tx,
+      );
+
+      return ticket;
+    });
+  }
+
+  /**
+   * Signalement d'un problème sur un reçu (doublon, erreur de montant...),
+   * adressé à un ADMIN du magasin, seul habilité à modifier un reçu.
+   */
+  async createReceiptTicket(dto: CreateReceiptTicketDto, user: any) {
+    const sale = await this.prisma.sale.findUnique({
+      where: { id: dto.saleId },
+      select: { id: true, storeId: true, invoiceNumber: true },
+    });
+    if (!sale) throw new NotFoundException('Reçu introuvable.');
+
+    assertStoreAccess(user, sale.storeId, "Vous n'avez pas accès à ce reçu.");
+
+    if (dto.recipientId === user.id) {
+      throw new BadRequestException('Vous ne pouvez pas vous adresser un ticket à vous-même.');
+    }
+
+    const recipient = await this.prisma.user.findUnique({
+      where: { id: dto.recipientId },
+      include: { ownedStores: true, storeAssignments: true },
+    });
+    if (!recipient) throw new NotFoundException('Destinataire introuvable.');
+    if (recipient.role !== UserRole.ADMIN) {
+      throw new BadRequestException('Un signalement de reçu doit être adressé à un administrateur.');
+    }
+    if (!getAllowedStoreIds(recipient).includes(sale.storeId)) {
+      throw new BadRequestException("Ce destinataire n'a pas accès à ce magasin.");
+    }
+
+    const existing = await this.prisma.ticket.findFirst({
+      where: { saleId: sale.id, type: TicketType.RECEIPT, status: TicketStatus.OPEN },
+    });
+    if (existing) {
+      throw new BadRequestException('Un signalement est déjà en attente pour ce reçu.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const ticket = await tx.ticket.create({
+        data: {
+          type: TicketType.RECEIPT,
+          storeId: sale.storeId,
+          saleId: sale.id,
+          saleInvoiceNumber: sale.invoiceNumber,
+          justification: dto.justification,
+          createdById: user.id,
+          recipientId: dto.recipientId,
+        },
+        include: TICKET_INCLUDE,
+      });
+
+      await this.notificationsService.create(
+        sale.storeId,
+        'Nouveau signalement de reçu',
+        `Un ticket a été ouvert sur le reçu ${sale.invoiceNumber}, adressé à ${recipient.name}.`,
+        tx,
+      );
+
+      await this.auditLogService.log(
+        user.id,
+        `a signalé le reçu ${sale.invoiceNumber} (destinataire : ${recipient.name})`,
         'Ticket',
         ticket.id,
         tx,
@@ -177,14 +259,16 @@ export class TicketsService {
         ticket.storeId,
         targetStatus === TicketStatus.APPROVED ? 'Ticket approuvé' : 'Ticket fermé',
         targetStatus === TicketStatus.APPROVED
-          ? `Le ticket concernant "${ticket.product.name}" a été approuvé.`
-          : `Le ticket concernant "${ticket.product.name}" a été fermé.`,
+          ? `Le ticket concernant ${describeTicketSubject(ticket)} a été approuvé.`
+          : `Le ticket concernant ${describeTicketSubject(ticket)} a été fermé.`,
         tx,
       );
 
       await this.auditLogService.log(
         user.id,
-        `${action} le ticket de réapprovisionnement pour "${ticket.product.name}"`,
+        ticket.type === TicketType.RECEIPT
+          ? `${action} le signalement sur ${describeTicketSubject(ticket)}`
+          : `${action} le ticket de réapprovisionnement pour ${describeTicketSubject(ticket)}`,
         'Ticket',
         ticket.id,
         tx,

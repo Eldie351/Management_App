@@ -7,6 +7,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { TicketsService } from './tickets.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ResolveTicketDto } from './dto/resolve-ticket.dto';
+import { CreateReceiptTicketDto } from './dto/create-receipt-ticket.dto';
 
 const { ADMIN, MANAGER, CASHIER } = UserRole;
 
@@ -22,6 +23,14 @@ export class TicketsController {
   @Roles(CASHIER, MANAGER)
   async create(@Body() dto: CreateTicketDto, @CurrentUser() user: any) {
     return this.ticketsService.createTicket(dto, user);
+  }
+
+  // Signalement d'un problème sur un reçu (doublon, erreur...), adressé à un
+  // ADMIN du magasin, seul habilité à modifier ou supprimer un reçu.
+  @Post('receipt')
+  @Roles(CASHIER, MANAGER)
+  async createReceiptTicket(@Body() dto: CreateReceiptTicketDto, @CurrentUser() user: any) {
+    return this.ticketsService.createReceiptTicket(dto, user);
   }
 
   // Compteur pour le tableau de bord (sens différent selon le rôle, voir
