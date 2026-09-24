@@ -17,6 +17,7 @@ import {
   Boxes,
   LogOut,
   Ticket,
+  History,
 } from 'lucide-react';
 import { getStoredUserRole, getStoredUserName, getRoleLabel, clearUserSession, type AppRole } from '@/lib/auth';
 import TentacleField from '@/components/TentacleField';
@@ -37,6 +38,7 @@ const adminItems: NavItem[] = [
   { href: '/stats', label: 'Rapports', icon: BarChart3, group: 'Gestion' },
   { href: '/alerts', label: 'Alertes', icon: AlertTriangle, group: 'Gestion' },
   { href: '/tickets', label: 'Tickets', icon: Ticket, group: 'Gestion' },
+  { href: '/receipt-actions', label: 'Historique des actions', icon: History, group: 'Gestion' },
   { href: '/profil', label: 'Profil', icon: User, group: 'Compte' },
 ];
 
