@@ -29,7 +29,7 @@ export class ProductsExportService {
     sheet.columns = [
       { header: 'ID', key: 'id', width: 8 },
       { header: 'Nom', key: 'name', width: 28 },
-      { header: 'SKU', key: 'sku', width: 16 },
+      { header: 'Référence', key: 'sku', width: 16 },
       { header: 'Stock actuel', key: 'quantity', width: 14 },
       { header: 'Stock initial', key: 'initialStock', width: 14 },
       { header: 'Seuil minimum', key: 'minimumStock', width: 14 },

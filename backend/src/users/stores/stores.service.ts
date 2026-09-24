@@ -36,6 +36,14 @@ export class StoresService {
     phone: string,
     currency?: Currency,
   ) {
+    // Rang du magasin chez son propriétaire, utilisé dans les références
+    // produit OCTO-a-N. Jamais réattribué, même après suppression d'un magasin
+    // précédent, tant que ce n'est pas le dernier.
+    const { _max } = await this.prisma.store.aggregate({
+      where: { userId },
+      _max: { storeNumber: true },
+    });
+
     return this.prisma.store.create({
       data: {
         name,
@@ -43,6 +51,7 @@ export class StoresService {
         phone,
         currency: currency || Currency.USD,
         userId,
+        storeNumber: (_max.storeNumber ?? 0) + 1,
       },
     });
   }

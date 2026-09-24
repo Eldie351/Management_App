@@ -5,10 +5,6 @@ export class CreateProductDto {
   @IsNotEmpty({ message: 'Le nom du produit est obligatoire.' })
   name: string;
 
-  @IsString()
-  @IsOptional()
-  sku?: string;
-
   @IsNumber()
   @Min(0, { message: 'La quantité ne peut pas être négative.' })
   quantity: number;

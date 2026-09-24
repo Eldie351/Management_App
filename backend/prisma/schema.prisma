@@ -115,6 +115,11 @@ model Store {
   phone         String?
   currency      Currency          @default(XOF)
   createdAt     DateTime          @default(now())
+  // Rang du magasin parmi ceux de son propriétaire (1 pour son premier
+  // magasin, 2 pour le deuxième…) : le « a » des références OCTO-a-N.
+  storeNumber   Int               @default(0)
+  // Dernier N attribué aux références produit OCTO-a-N de ce magasin.
+  productSeq    Int               @default(0)
 
   // Propriétaire
   userId        Int
@@ -154,7 +159,10 @@ model Product {
   id           Int       @id @default(autoincrement())
   name         String
   description  String?
-  sku          String?
+  // Référence OCTO-a-N attribuée automatiquement à la création : a = rang du
+  // magasin chez son propriétaire sur 2 chiffres (Store.storeNumber), N = rang
+  // de création du produit dans ce magasin (Store.productSeq).
+  sku          String
   barcode      String?
   imageUrl     String?
   quantity     Int       @default(0)

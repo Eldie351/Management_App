@@ -5,10 +5,6 @@ export class UpdateProductDto {
   @IsOptional()
   name?: string;
 
-  @IsString()
-  @IsOptional()
-  sku?: string;
-
   @IsNumber({}, { message: 'Le prix doit être un nombre.' })
   @Min(0, { message: 'Le prix ne peut pas être négatif.' })
   @IsOptional()

@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { MovementType, PaymentMethod, UserRole } from '@prisma/client';
+import { MovementType, PaymentMethod, Prisma, UserRole } from '@prisma/client';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { AuditLogService } from '../../../audit-log/audit-log.service';
 import { assertStoreAccess, buildStoreWhere } from '../../../common/utils/store-access.util';
@@ -218,6 +218,22 @@ export class ProductsService {
     );
   }
 
+  /**
+   * Réserve la prochaine référence OCTO-a-N du magasin (a : rang du magasin
+   * chez son propriétaire sur 2 chiffres, N : rang de création du produit).
+   * L'incrément atomique de Store.productSeq verrouille la ligne du magasin
+   * jusqu'à la fin de la transaction : deux créations simultanées ne peuvent
+   * pas obtenir le même N.
+   */
+  private async nextProductReference(tx: Prisma.TransactionClient, storeId: number) {
+    const { storeNumber, productSeq } = await tx.store.update({
+      where: { id: storeId },
+      data: { productSeq: { increment: 1 } },
+      select: { storeNumber: true, productSeq: true },
+    });
+    return `OCTO-${String(storeNumber).padStart(2, '0')}-${productSeq}`;
+  }
+
   async createProduct(dto: CreateProductDto & { safetyStock?: number; optimalStock?: number }, userId: number) {
     const storeExists = await this.prisma.store.findUnique({
       where: { id: dto.storeId },
@@ -256,7 +272,7 @@ export class ProductsService {
       const product = await tx.product.create({
         data: {
           name: dto.name,
-          sku: dto.sku,
+          sku: await this.nextProductReference(tx, dto.storeId),
           quantity: dto.quantity,
           initialStock: dto.quantity,
           purchasePrice: dto.price,
@@ -354,11 +370,15 @@ export class ProductsService {
       const newQuantity = dto.quantity !== undefined ? Number(dto.quantity) : product.quantity;
       const delta = newQuantity - product.quantity;
 
+      // Un produit déplacé prend la référence suivante de son nouveau
+      // magasin (la numérotation OCTO-a-N est propre à chaque magasin).
+      const movesStore = dto.storeId !== undefined && dto.storeId !== product.storeId;
+
       const updatedProduct = await tx.product.update({
         where: { id },
         data: {
           name: dto.name,
-          sku: dto.sku,
+          sku: movesStore ? await this.nextProductReference(tx, dto.storeId!) : undefined,
           quantity: dto.quantity !== undefined ? Number(dto.quantity) : undefined,
           purchasePrice: dto.price !== undefined ? dto.price : undefined,
           sellingPrice: dto.price !== undefined ? dto.price : undefined,
