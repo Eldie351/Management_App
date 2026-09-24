@@ -32,9 +32,11 @@ interface StaffMember {
 }
 
 type TicketStatus = 'OPEN' | 'APPROVED' | 'CLOSED';
+type TicketType = 'RESTOCK' | 'RECEIPT';
 
 interface Ticket {
   id: number;
+  type: TicketType;
   status: TicketStatus;
   justification: string;
   requestedQuantity?: number | null;
@@ -42,7 +44,9 @@ interface Ticket {
   createdAt: string;
   resolvedAt?: string | null;
   store?: { id: number; name: string };
-  product: { id: number; name: string; sku?: string | null; quantity: number };
+  product?: { id: number; name: string; sku?: string | null; quantity: number } | null;
+  sale?: { id: number; invoiceNumber: string; totalAmount: number; createdAt: string } | null;
+  saleInvoiceNumber?: string | null;
   createdBy: { id: number; name: string; role: AppRole };
   recipient: { id: number; name: string; role: AppRole };
   resolvedBy?: { id: number; name: string } | null;
@@ -68,6 +72,13 @@ const STATUS_LABEL: Record<TicketStatus, { label: string; className: string }> =
   APPROVED: { label: 'Approuvé', className: 'border-green-200 bg-green-50 text-green-700' },
   CLOSED: { label: 'Fermé', className: 'border-gray-200 bg-gray-50 text-gray-600' },
 };
+
+function getTicketSubject(ticket: Ticket): string {
+  if (ticket.type === 'RECEIPT') {
+    return `Reçu ${ticket.sale?.invoiceNumber ?? ticket.saleInvoiceNumber ?? '—'}`;
+  }
+  return ticket.product?.name ?? 'Produit supprimé';
+}
 
 function getUniqueStores(profile: Profile | null): Store[] {
   if (!profile) return [];
@@ -346,7 +357,7 @@ function TicketsContent() {
       <main className="flex-1 overflow-y-auto p-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b pb-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Tickets de réapprovisionnement</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Tickets</h1>
             <p className="mt-1 text-muted-foreground">
               {canCreate
                 ? 'Choisissez un destinataire (manager ou admin) pour votre demande.'
@@ -424,7 +435,7 @@ function TicketsContent() {
                   <TableHeader>
                     <TableRow>
                       {selectedStoreId === ALL_STORES && <TableHead>Magasin</TableHead>}
-                      <TableHead>Produit</TableHead>
+                      <TableHead>Objet</TableHead>
                       <TableHead>Justification</TableHead>
                       <TableHead className="text-center">Qté demandée</TableHead>
                       <TableHead>Ouvert par</TableHead>
@@ -444,10 +455,30 @@ function TicketsContent() {
                             </TableCell>
                           )}
                           <TableCell className="font-medium">
-                            {ticket.product.name}
-                            <div className="text-xs text-gray-400">
-                              Stock actuel : {ticket.product.quantity}
-                            </div>
+                            {getTicketSubject(ticket)}
+                            {ticket.type === 'RECEIPT' ? (
+                              <div className="text-xs text-gray-400">
+                                {ticket.sale ? (
+                                  <button
+                                    type="button"
+                                    className="text-blue-600 hover:underline"
+                                    onClick={() =>
+                                      router.push(`/receipts?storeId=${ticket.store?.id ?? selectedStoreId}&saleId=${ticket.sale!.id}`)
+                                    }
+                                  >
+                                    Voir le reçu
+                                  </button>
+                                ) : (
+                                  'Reçu supprimé'
+                                )}
+                              </div>
+                            ) : (
+                              ticket.product && (
+                                <div className="text-xs text-gray-400">
+                                  Stock actuel : {ticket.product.quantity}
+                                </div>
+                              )
+                            )}
                           </TableCell>
                           <TableCell className="max-w-xs">
                             <div className="text-sm">{ticket.justification}</div>
@@ -616,7 +647,7 @@ function TicketsContent() {
                 {resolvingAction === 'approve' ? 'Approuver ce ticket ?' : 'Fermer ce ticket ?'}
               </CardTitle>
               <CardDescription>
-                {resolvingTicket.product.name} — demandé par {resolvingTicket.createdBy?.name ?? '—'}
+                {getTicketSubject(resolvingTicket)} — demandé par {resolvingTicket.createdBy?.name ?? '—'}
               </CardDescription>
             </CardHeader>
             <CardContent>

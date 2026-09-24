@@ -22,19 +22,23 @@ import {
   ArrowLeft,
   CheckCircle2,
   Pencil,
+  Trash2,
+  Flag,
+  Plus,
 } from 'lucide-react';
 import { escapeHtml } from '@/lib/html';
-import { getStoredUserRole } from '@/lib/auth';
+import { getStoredUserRole, type AppRole } from '@/lib/auth';
 
 interface ReceiptItem {
   id?: number | string;
+  productId?: number;
   productName?: string;
   name?: string;
   designation?: string;
   label?: string;
   title?: string;
   sku?: string | null;
-  product?: { name?: string; title?: string; designation?: string; sku?: string | null };
+  product?: { id?: number; name?: string; title?: string; designation?: string; sku?: string | null };
   quantity?: number;
   qty?: number;
   unitPrice?: number;
@@ -84,7 +88,30 @@ interface Receipt {
   currency?: string;
 }
 
+interface StoreProduct {
+  id: number;
+  name: string;
+  sku?: string | null;
+  quantity: number;
+  sellingPrice: number;
+}
+
+interface EditLine {
+  key: string;
+  productId: string;
+  quantity: string;
+  unitPrice: string;
+}
+
+interface ColleagueGroup {
+  store: { id: number; name: string };
+  staff: { id: number; name: string; role: AppRole }[];
+}
+
 type Period = 'week' | 'month' | 'year';
+
+let editLineSeq = 0;
+const newEditLineKey = () => `line-${++editLineSeq}`;
 
 interface DayCell {
   date: Date;
@@ -171,6 +198,7 @@ function ReceiptsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlStoreId = searchParams.get('storeId');
+  const urlSaleId = searchParams.get('saleId');
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   // Liste des magasins & Magasin sélectionné
@@ -189,16 +217,37 @@ function ReceiptsContent() {
   const [anchor, setAnchor] = useState<Date>(() => new Date());
   const [calendarOpen, setCalendarOpen] = useState(false);
 
-  // Édition d'un reçu (réservée à l'ADMIN)
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Édition / suppression d'un reçu (réservées à l'ADMIN, motif obligatoire)
+  const [role, setRole] = useState<AppRole | null>(null);
+  const isAdmin = role === 'ADMIN';
+  const canReport = role === 'CASHIER' || role === 'MANAGER';
+  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
   const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editPaymentMethod, setEditPaymentMethod] = useState('CASH');
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
+  const [editDiscountType, setEditDiscountType] = useState<'' | 'AMOUNT' | 'PERCENT'>('');
+  const [editDiscountValue, setEditDiscountValue] = useState('');
+  const [editReason, setEditReason] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState('');
 
+  const [deletingReceipt, setDeletingReceipt] = useState<Receipt | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  // Signalement d'un reçu (CASHIER / MANAGER) via un ticket adressé à un ADMIN
+  const [colleagues, setColleagues] = useState<ColleagueGroup[]>([]);
+  const [reportingReceipt, setReportingReceipt] = useState<Receipt | null>(null);
+  const [reportRecipientId, setReportRecipientId] = useState('');
+  const [reportJustification, setReportJustification] = useState('');
+  const [isReporting, setIsReporting] = useState(false);
+  const [reportError, setReportError] = useState('');
+  const [reportSuccess, setReportSuccess] = useState('');
+
   useEffect(() => {
-    setIsAdmin(getStoredUserRole() === 'ADMIN');
+    setRole(getStoredUserRole());
   }, []);
 
   // 1. Charger la liste des magasins au montage
@@ -320,6 +369,39 @@ function ReceiptsContent() {
       fetchReceipts();
     }
   }, [selectedStore, fetchReceipts]);
+
+  // Produits du magasin, pour l'ajout/remplacement d'articles lors de la modification
+  useEffect(() => {
+    if (!selectedStore || !isAdmin) return;
+    const token = localStorage.getItem('access_token');
+    fetch(`${API}/products/store/${selectedStore.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setStoreProducts(Array.isArray(data) ? data : []))
+      .catch(() => setStoreProducts([]));
+  }, [API, selectedStore, isAdmin]);
+
+  // Administrateurs du magasin, destinataires possibles d'un signalement
+  useEffect(() => {
+    if (!canReport) return;
+    const token = localStorage.getItem('access_token');
+    fetch(`${API}/users/colleagues`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setColleagues(Array.isArray(data) ? data : []))
+      .catch(() => setColleagues([]));
+  }, [API, canReport]);
+
+  // Ouverture directe d'un reçu (?saleId=), par ex. depuis la page Tickets.
+  // Chargé individuellement car il peut être hors de la période affichée.
+  useEffect(() => {
+    if (!selectedStore || !urlSaleId) return;
+    const token = localStorage.getItem('access_token');
+    fetch(`${API}/sales/${urlSaleId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((sale) => {
+        if (sale && String(sale.storeId) === String(selectedStore.id)) setSelectedReceipt(sale);
+      })
+      .catch(() => {});
+  }, [API, selectedStore, urlSaleId]);
 
   // Utilitaires de formatage
   const getReceiptNumber = (r: Receipt) => r.invoiceNumber || r.receiptNumber || `#${r.id}`;
@@ -559,17 +641,84 @@ function ReceiptsContent() {
     setTimeout(() => { w.print(); w.close(); }, 300);
   };
 
+  const getItemProductId = (it: ReceiptItem) => it.productId ?? it.product?.id;
+
   const openEditReceipt = (r: Receipt) => {
     setEditError('');
+    setEditReason('');
     setEditCustomerName(r.customerName || '');
     setEditPaymentMethod(r.paymentMethod || 'CASH');
+    setEditLines(
+      getItemsList(r).map((it) => ({
+        key: newEditLineKey(),
+        productId: String(getItemProductId(it) ?? ''),
+        quantity: String(it.quantity ?? it.qty ?? 1),
+        unitPrice: String(it.unitPrice ?? it.price ?? 0),
+      })),
+    );
+    setEditDiscountType(r.discountType ?? '');
+    setEditDiscountValue(r.discountType ? String(r.discountValue ?? 0) : '');
     setEditingReceipt(r);
   };
 
+  // Produits proposés dans l'éditeur : ceux du magasin + ceux déjà présents
+  // sur le reçu (un produit archivé depuis la vente n'est plus listé par
+  // /products/store mais doit rester sélectionnable sur sa propre ligne).
+  const editProductOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; quantity?: number }>();
+    if (editingReceipt) {
+      for (const it of getItemsList(editingReceipt)) {
+        const id = getItemProductId(it);
+        if (id !== undefined) map.set(String(id), { id: String(id), name: getItemName(it) });
+      }
+    }
+    for (const p of storeProducts) map.set(String(p.id), { id: String(p.id), name: p.name, quantity: p.quantity });
+    return Array.from(map.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingReceipt, storeProducts]);
+
+  const updateEditLine = (key: string, patch: Partial<EditLine>) => {
+    setEditLines((lines) => lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  };
+
+  const onEditLineProductChange = (key: string, productId: string) => {
+    const product = storeProducts.find((p) => String(p.id) === productId);
+    updateEditLine(key, product ? { productId, unitPrice: String(product.sellingPrice) } : { productId });
+  };
+
+  // Aperçu des montants — même calcul que computeDiscount côté serveur, qui
+  // reste la seule source de vérité.
+  const editTotals = useMemo(() => {
+    const subtotal = editLines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), 0);
+    const raw = Number(editDiscountValue) || 0;
+    const value = editDiscountType === 'PERCENT' ? Math.min(Math.max(raw, 0), 100) : Math.max(raw, 0);
+    const discount = editDiscountType
+      ? Math.min(editDiscountType === 'PERCENT' ? (value / 100) * subtotal : value, subtotal)
+      : 0;
+    return { subtotal, discount, total: subtotal - discount };
+  }, [editLines, editDiscountType, editDiscountValue]);
+
   const saveEditReceipt = async () => {
     if (!editingReceipt) return;
-    setSavingEdit(true);
     setEditError('');
+
+    if (!editReason.trim()) {
+      setEditError('Veuillez indiquer le motif de la modification.');
+      return;
+    }
+    if (editLines.length === 0) {
+      setEditError('Un reçu doit contenir au moins un article.');
+      return;
+    }
+    const invalidLine = editLines.find(
+      (l) => !l.productId || !(Number.isInteger(Number(l.quantity)) && Number(l.quantity) > 0) || l.unitPrice === '' || Number(l.unitPrice) < 0,
+    );
+    if (invalidLine) {
+      setEditError('Chaque article doit avoir un produit, une quantité entière positive et un prix valide.');
+      return;
+    }
+
+    setSavingEdit(true);
     const token = localStorage.getItem('access_token');
 
     try {
@@ -580,21 +729,121 @@ function ReceiptsContent() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          reason: editReason.trim(),
           customerName: editCustomerName.trim() || 'Client de passage',
           paymentMethod: editPaymentMethod,
+          items: editLines.map((l) => ({
+            productId: Number(l.productId),
+            quantity: Number(l.quantity),
+            unitPrice: Number(l.unitPrice),
+          })),
+          discountType: editDiscountType || null,
+          ...(editDiscountType && { discountValue: Number(editDiscountValue) || 0 }),
         }),
       });
 
       const updated = await res.json();
-      if (!res.ok) throw new Error(updated.message || updated.error || 'Échec de la modification du reçu.');
+      if (!res.ok) {
+        const message = Array.isArray(updated.message) ? updated.message.join(' ') : updated.message;
+        throw new Error(message || updated.error || 'Échec de la modification du reçu.');
+      }
 
-      setReceipts((prev) => prev.map((r) => (String(r.id) === String(updated.id) ? { ...r, ...updated } : r)));
-      setSelectedReceipt((prev) => (prev && String(prev.id) === String(updated.id) ? { ...prev, ...updated } : prev));
+      setReceipts((prev) => prev.map((r) => (String(r.id) === String(updated.id) ? updated : r)));
+      setSelectedReceipt((prev) => (prev && String(prev.id) === String(updated.id) ? updated : prev));
       setEditingReceipt(null);
     } catch (err: unknown) {
       setEditError(err instanceof Error ? err.message : 'Une erreur est survenue.');
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const openDeleteReceipt = (r: Receipt) => {
+    setDeleteError('');
+    setDeleteReason('');
+    setDeletingReceipt(r);
+  };
+
+  const confirmDeleteReceipt = async () => {
+    if (!deletingReceipt) return;
+    setDeleteError('');
+    if (!deleteReason.trim()) {
+      setDeleteError('Veuillez indiquer le motif de la suppression.');
+      return;
+    }
+
+    setIsDeleting(true);
+    const token = localStorage.getItem('access_token');
+    try {
+      const res = await fetch(`${API}/sales/${deletingReceipt.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: deleteReason.trim() }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const message = Array.isArray(errData.message) ? errData.message.join(' ') : errData.message;
+        throw new Error(message || 'Échec de la suppression du reçu.');
+      }
+
+      const deletedId = String(deletingReceipt.id);
+      setReceipts((prev) => prev.filter((r) => String(r.id) !== deletedId));
+      setSelectedReceipt((prev) => (prev && String(prev.id) === deletedId ? null : prev));
+      setDeletingReceipt(null);
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Une erreur est survenue.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const reportRecipients = (
+    colleagues.find((c) => String(c.store.id) === String(selectedStore?.id))?.staff ?? []
+  ).filter((s) => s.role === 'ADMIN');
+
+  const openReportReceipt = (r: Receipt) => {
+    setReportError('');
+    setReportJustification('');
+    setReportRecipientId(reportRecipients.length === 1 ? String(reportRecipients[0].id) : '');
+    setReportingReceipt(r);
+  };
+
+  const submitReportReceipt = async () => {
+    if (!reportingReceipt) return;
+    setReportError('');
+    if (!reportRecipientId) {
+      setReportError('Veuillez choisir un administrateur destinataire.');
+      return;
+    }
+    if (!reportJustification.trim()) {
+      setReportError('Veuillez décrire le problème.');
+      return;
+    }
+
+    setIsReporting(true);
+    const token = localStorage.getItem('access_token');
+    try {
+      const res = await fetch(`${API}/tickets/receipt`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          saleId: Number(reportingReceipt.id),
+          recipientId: Number(reportRecipientId),
+          justification: reportJustification.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const message = Array.isArray(errData.message) ? errData.message.join(' ') : errData.message;
+        throw new Error(message || "Impossible d'envoyer le signalement.");
+      }
+
+      setReportSuccess(`Signalement envoyé pour le reçu ${getReceiptNumber(reportingReceipt)}.`);
+      setReportingReceipt(null);
+    } catch (err: unknown) {
+      setReportError(err instanceof Error ? err.message : 'Une erreur est survenue.');
+    } finally {
+      setIsReporting(false);
     }
   };
 
@@ -768,6 +1017,15 @@ function ReceiptsContent() {
             </CardHeader>
 
             <CardContent>
+              {reportSuccess && (
+                <div className="mb-4 flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                  <span>{reportSuccess}</span>
+                  <button onClick={() => setReportSuccess('')} className="text-emerald-600 hover:text-emerald-800">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Panneau calendrier */}
               {calendarOpen && (
                 <div className="mb-5 rounded-xl border bg-white p-4 shadow-sm">
@@ -889,13 +1147,35 @@ function ReceiptsContent() {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             {isAdmin && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openEditReceipt(r)}
+                                  className="gap-1"
+                                >
+                                  <Pencil className="w-4 h-4" /> Modifier
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openDeleteReceipt(r)}
+                                  className="gap-1 text-red-600 hover:text-red-700"
+                                  title="Supprimer ce reçu"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                            {canReport && (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => openEditReceipt(r)}
+                                onClick={() => openReportReceipt(r)}
                                 className="gap-1"
+                                title="Signaler un problème sur ce reçu (doublon, erreur…)"
                               >
-                                <Pencil className="w-4 h-4" /> Modifier
+                                <Flag className="w-4 h-4" /> Signaler
                               </Button>
                             )}
                             <Button
@@ -1045,12 +1325,31 @@ function ReceiptsContent() {
                   Fermer
                 </Button>
                 {isAdmin && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      onClick={() => openEditReceipt(selectedReceipt)}
+                    >
+                      <Pencil className="w-4 h-4" /> Modifier
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="gap-2 text-red-600 hover:text-red-700"
+                      onClick={() => openDeleteReceipt(selectedReceipt)}
+                      title="Supprimer ce reçu"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
+                {canReport && (
                   <Button
                     variant="outline"
                     className="flex-1 gap-2"
-                    onClick={() => openEditReceipt(selectedReceipt)}
+                    onClick={() => openReportReceipt(selectedReceipt)}
                   >
-                    <Pencil className="w-4 h-4" /> Modifier
+                    <Flag className="w-4 h-4" /> Signaler
                   </Button>
                 )}
                 <Button className="flex-1 gap-2 bg-slate-900 hover:bg-slate-800 text-white" onClick={() => printReceipt(selectedReceipt)}>
@@ -1062,10 +1361,10 @@ function ReceiptsContent() {
         );
       })()}
 
-      {/* MODAL D'ÉDITION D'UN REÇU (ADMIN uniquement) */}
+      {/* MODAL D'ÉDITION D'UN REÇU (ADMIN uniquement, motif obligatoire) */}
       {editingReceipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 relative">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setEditingReceipt(null)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
@@ -1075,34 +1374,166 @@ function ReceiptsContent() {
 
             <h2 className="font-bold text-lg mb-1">Modifier le reçu</h2>
             <p className="text-sm text-slate-500 mb-4">
-              Facture N° {getReceiptNumber(editingReceipt)}
+              Facture N° {getReceiptNumber(editingReceipt)} — le stock sera ajusté selon les quantités modifiées.
             </p>
 
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="editCustomerName">Client</Label>
-                <Input
-                  id="editCustomerName"
-                  type="text"
-                  value={editCustomerName}
-                  onChange={(e) => setEditCustomerName(e.target.value)}
-                  placeholder="Client de passage"
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="editCustomerName">Client</Label>
+                  <Input
+                    id="editCustomerName"
+                    type="text"
+                    value={editCustomerName}
+                    onChange={(e) => setEditCustomerName(e.target.value)}
+                    placeholder="Client de passage"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="editPaymentMethod">Mode de règlement</Label>
+                  <select
+                    id="editPaymentMethod"
+                    value={editPaymentMethod}
+                    onChange={(e) => setEditPaymentMethod(e.target.value)}
+                    className="w-full rounded-lg border p-2 text-sm bg-white"
+                  >
+                    <option value="CASH">Espèces</option>
+                    <option value="MOBILE_MONEY">MoMo</option>
+                    <option value="CARD">Carte</option>
+                    <option value="CHECK">Chèque</option>
+                    <option value="OTHER">Autre</option>
+                  </select>
+                </div>
               </div>
+
               <div>
-                <Label htmlFor="editPaymentMethod">Mode de règlement</Label>
-                <select
-                  id="editPaymentMethod"
-                  value={editPaymentMethod}
-                  onChange={(e) => setEditPaymentMethod(e.target.value)}
-                  className="w-full rounded-lg border p-2 text-sm bg-white"
-                >
-                  <option value="CASH">Espèces</option>
-                  <option value="MOBILE_MONEY">MoMo</option>
-                  <option value="CARD">Carte</option>
-                  <option value="CHECK">Chèque</option>
-                  <option value="OTHER">Autre</option>
-                </select>
+                <Label>Articles</Label>
+                <div className="mt-1 space-y-2">
+                  <div className="hidden sm:grid grid-cols-[1fr_80px_110px_90px_32px] gap-2 text-xs text-slate-500">
+                    <span>Produit</span>
+                    <span>Qté</span>
+                    <span>PU</span>
+                    <span className="text-right">Total</span>
+                    <span />
+                  </div>
+                  {editLines.map((line) => (
+                    <div key={line.key} className="grid grid-cols-[1fr_80px_110px_90px_32px] gap-2 items-center">
+                      <select
+                        value={line.productId}
+                        onChange={(e) => onEditLineProductChange(line.key, e.target.value)}
+                        className="w-full rounded-lg border p-2 text-sm bg-white"
+                        aria-label="Produit"
+                      >
+                        <option value="">— Produit —</option>
+                        {editProductOptions.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}{p.quantity !== undefined ? ` (${p.quantity} en stock)` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={line.quantity}
+                        onChange={(e) => updateEditLine(line.key, { quantity: e.target.value })}
+                        aria-label="Quantité"
+                      />
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={line.unitPrice}
+                        onChange={(e) => updateEditLine(line.key, { unitPrice: e.target.value })}
+                        aria-label="Prix unitaire"
+                      />
+                      <span className="text-right font-mono text-sm">
+                        {((Number(line.quantity) || 0) * (Number(line.unitPrice) || 0)).toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setEditLines((lines) => lines.filter((l) => l.key !== line.key))}
+                        className="text-slate-400 hover:text-red-600"
+                        title="Retirer l'article"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() =>
+                      setEditLines((lines) => [...lines, { key: newEditLineKey(), productId: '', quantity: '1', unitPrice: '' }])
+                    }
+                  >
+                    <Plus className="w-4 h-4" /> Ajouter un article
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="editDiscountType">Remise</Label>
+                  <select
+                    id="editDiscountType"
+                    value={editDiscountType}
+                    onChange={(e) => setEditDiscountType(e.target.value as '' | 'AMOUNT' | 'PERCENT')}
+                    className="w-full rounded-lg border p-2 text-sm bg-white"
+                  >
+                    <option value="">Aucune</option>
+                    <option value="AMOUNT">Montant fixe</option>
+                    <option value="PERCENT">Pourcentage</option>
+                  </select>
+                </div>
+                {editDiscountType && (
+                  <div>
+                    <Label htmlFor="editDiscountValue">
+                      Valeur {editDiscountType === 'PERCENT' ? '(%)' : `(${selectedStore?.currency || 'XOF'})`}
+                    </Label>
+                    <Input
+                      id="editDiscountValue"
+                      type="number"
+                      min="0"
+                      max={editDiscountType === 'PERCENT' ? 100 : undefined}
+                      step="any"
+                      value={editDiscountValue}
+                      onChange={(e) => setEditDiscountValue(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span>Sous-total</span>
+                  <span className="font-mono">{editTotals.subtotal.toFixed(2)} {selectedStore?.currency || 'XOF'}</span>
+                </div>
+                {editTotals.discount > 0 && (
+                  <div className="flex justify-between">
+                    <span>Remise</span>
+                    <span className="font-mono">- {editTotals.discount.toFixed(2)} {selectedStore?.currency || 'XOF'}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold border-t pt-1">
+                  <span>Total</span>
+                  <span className="font-mono">{editTotals.total.toFixed(2)} {selectedStore?.currency || 'XOF'}</span>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="editReason">Motif de la modification *</Label>
+                <textarea
+                  id="editReason"
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full rounded-lg border bg-white p-2 text-sm"
+                  placeholder="Ex : erreur de quantité à la caisse, le client a pris 2 articles et non 3."
+                />
               </div>
 
               {editError && <p className="text-sm text-red-600">{editError}</p>}
@@ -1115,9 +1546,135 @@ function ReceiptsContent() {
               <Button
                 className="flex-1 bg-slate-900 hover:bg-slate-800 text-white"
                 onClick={saveEditReceipt}
-                disabled={savingEdit}
+                disabled={savingEdit || !editReason.trim()}
               >
                 {savingEdit ? 'Enregistrement…' : 'Enregistrer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SUPPRESSION D'UN REÇU (ADMIN uniquement, motif obligatoire) */}
+      {deletingReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+            <button
+              onClick={() => setDeletingReceipt(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="font-bold text-lg mb-1 text-red-700">Supprimer le reçu</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Facture N° {getReceiptNumber(deletingReceipt)} — {getTotalAmount(deletingReceipt).toFixed(2)}{' '}
+              {getStoreObj(deletingReceipt)?.currency || 'XOF'}. Cette action est définitive ; le stock des
+              articles sera restauré.
+            </p>
+
+            <div className="space-y-2">
+              <Label htmlFor="deleteReason">Motif de la suppression *</Label>
+              <textarea
+                id="deleteReason"
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+                rows={3}
+                maxLength={500}
+                className="w-full rounded-lg border bg-white p-2 text-sm"
+                placeholder="Ex : doublon du reçu 2026-1-0042."
+              />
+              {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setDeletingReceipt(null)} disabled={isDeleting}>
+                Annuler
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                onClick={confirmDeleteReceipt}
+                disabled={isDeleting || !deleteReason.trim()}
+              >
+                {isDeleting ? 'Suppression…' : 'Supprimer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SIGNALEMENT D'UN REÇU (CASHIER / MANAGER → ADMIN) */}
+      {reportingReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+            <button
+              onClick={() => setReportingReceipt(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="font-bold text-lg mb-1">Signaler un problème</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Facture N° {getReceiptNumber(reportingReceipt)} — un ticket sera adressé à un administrateur, qui pourra
+              corriger ou supprimer le reçu.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="reportRecipient">Administrateur destinataire *</Label>
+                <select
+                  id="reportRecipient"
+                  value={reportRecipientId}
+                  onChange={(e) => setReportRecipientId(e.target.value)}
+                  className="w-full rounded-lg border p-2 text-sm bg-white"
+                >
+                  <option value="">— Choisir un administrateur —</option>
+                  {reportRecipients.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                {reportRecipients.length === 0 && (
+                  <p className="mt-1 text-xs text-amber-600">Aucun administrateur trouvé pour ce magasin.</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="reportJustification">Description du problème *</Label>
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {['Doublon', 'Erreur de montant', "Erreur d'article", 'Mauvais mode de paiement'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setReportJustification((j) => (j.trim() ? j : `${preset} : `))}
+                      className="rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  id="reportJustification"
+                  value={reportJustification}
+                  onChange={(e) => setReportJustification(e.target.value)}
+                  rows={4}
+                  maxLength={1000}
+                  className="w-full rounded-lg border bg-white p-2 text-sm"
+                  placeholder="Ex : doublon du reçu 2026-1-0042, la vente a été validée deux fois."
+                />
+              </div>
+              {reportError && <p className="text-sm text-red-600">{reportError}</p>}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setReportingReceipt(null)} disabled={isReporting}>
+                Annuler
+              </Button>
+              <Button
+                className="flex-1 bg-slate-900 hover:bg-slate-800 text-white"
+                onClick={submitReportReceipt}
+                disabled={isReporting}
+              >
+                {isReporting ? 'Envoi…' : 'Envoyer le signalement'}
               </Button>
             </div>
           </div>
