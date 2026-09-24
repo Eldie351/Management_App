@@ -46,6 +46,13 @@ enum TicketStatus {
   CLOSED
 }
 
+// RESTOCK : demande de réapprovisionnement sur un produit.
+// RECEIPT : signalement d'un problème sur un reçu (doublon, erreur...).
+enum TicketType {
+  RESTOCK
+  RECEIPT
+}
+
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
@@ -226,6 +233,7 @@ model Sale {
   store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   items         SaleItem[]
+  tickets Ticket[]
 
   @@index([storeId, createdAt])
   @@index([userId])
@@ -279,12 +287,16 @@ model AuditLog {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Demande de réapprovisionnement ouverte par un CASHIER ou un MANAGER sur un
-// produit précis, adressée à un destinataire précis (MANAGER ou ADMIN du
-// magasin), qui l'approuve ou la ferme. Un ADMIN du magasin peut aussi
-// traiter n'importe quel ticket, même adressé à un MANAGER.
+// Ticket ouvert par un CASHIER ou un MANAGER, adressé à un destinataire
+// précis du magasin, qui l'approuve ou la ferme. Un ADMIN du magasin peut
+// aussi traiter n'importe quel ticket, même adressé à un MANAGER.
+//  - RESTOCK : réapprovisionnement d'un produit (productId obligatoire).
+//  - RECEIPT : signalement sur un reçu (saleId obligatoire à la création).
+//    `saleInvoiceNumber` garde une trace du reçu même s'il est supprimé
+//    ensuite (cas typique d'un doublon), saleId repassant alors à NULL.
 model Ticket {
   id                Int          @id @default(autoincrement())
+  type              TicketType   @default(RESTOCK)
   status            TicketStatus @default(OPEN)
   justification     String
   requestedQuantity Int?
@@ -294,8 +306,11 @@ model Ticket {
 
   storeId      Int
   store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  productId    Int
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product?           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  saleId            Int?
+  sale              Sale?              @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  saleInvoiceNumber String?
 
   createdById  Int
   createdBy    User     @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
@@ -306,6 +321,7 @@ model Ticket {
 
   @@index([storeId])
   @@index([productId])
+  @@index([saleId])
   @@index([status])
   @@index([recipientId])
 }
