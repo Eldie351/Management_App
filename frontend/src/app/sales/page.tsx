@@ -421,7 +421,7 @@ export default function SalesPage() {
             <thead>
               <tr>
                 <th>Article</th>
-                <th>SKU</th>
+                <th>Réf.</th>
                 <th>Qté</th>
                 <th>PU</th>
                 <th>Total</th>
@@ -565,7 +565,7 @@ export default function SalesPage() {
                       <Input
                         id="productSearchInput"
                         type="text"
-                        placeholder="Taper le nom ou SKU du produit..."
+                        placeholder="Taper le nom ou la référence du produit..."
                         value={productSearchQuery}
                         onChange={(e) => {
                           setProductSearchQuery(e.target.value);
@@ -605,7 +605,7 @@ export default function SalesPage() {
                             >
                               <div className="flex flex-col">
                                 <span className="font-medium text-gray-900">{p.name}</span>
-                                <span className="text-[10px] text-gray-400 font-mono">SKU: {p.sku || 'N/A'}</span>
+                                <span className="text-[10px] text-gray-400 font-mono">{p.sku || 'N/A'}</span>
                               </div>
                               <div className="text-right flex flex-col items-end">
                                 <span className={`font-semibold px-1.5 py-0.5 rounded text-[10px] ${p.quantity > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
@@ -674,7 +674,7 @@ export default function SalesPage() {
                               <tr key={item.productId} className="border-b">
                                 <td className="py-2">
                                   <div className="font-medium">{item.name}</div>
-                                  <div className="text-xs text-gray-400">SKU: {item.sku || 'N/A'}</div>
+                                  <div className="text-xs text-gray-400">{item.sku || 'N/A'}</div>
                                 </td>
                                 <td className="py-2 text-center">
                                   <Input

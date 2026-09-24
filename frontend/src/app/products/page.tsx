@@ -32,7 +32,6 @@ function ProductsContent() {
   // États pour le formulaire de création
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState('');
-  const [sku, setSku] = useState('');
   const [quantity, setQuantity] = useState(0);
   const [price, setPrice] = useState(0);
   const [minimumStock, setMinimumStock] = useState(5);
@@ -61,7 +60,6 @@ function ProductsContent() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<any>(null);
   const [editName, setEditName] = useState('');
-  const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
   const [editQuantity, setEditQuantity] = useState(0);
   const [editDescription, setEditDescription] = useState('');
@@ -183,7 +181,6 @@ function ProductsContent() {
         },
         body: JSON.stringify({
           name,
-          sku: sku || undefined,
           quantity: Number(quantity),
           price: Number(price),
           minimumStock: Number(minimumStock),
@@ -196,7 +193,6 @@ function ProductsContent() {
       if (!res.ok) throw new Error(data.message || 'Échec de l’ajout.');
 
       setName('');
-      setSku('');
       setQuantity(0);
       setPrice(0);
       setMinimumStock(5);
@@ -375,7 +371,6 @@ function ProductsContent() {
         },
         body: JSON.stringify({
           name: editName,
-          sku: editSku || null,
           price: Number(editPrice),
           description: editDescription || null,
           minimumStock: Number(editMinimumStock),
@@ -502,7 +497,7 @@ function ProductsContent() {
         <div className="mb-6 max-w-md">
           <Input
             type="text"
-            placeholder="Rechercher par désignation, description ou référence SKU..."
+            placeholder="Rechercher par désignation, description ou référence..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white shadow-sm h-10 border-gray-200 focus:border-blue-500"
@@ -525,6 +520,7 @@ function ProductsContent() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Référence</TableHead>
                   <TableHead>Désignation</TableHead>
                   {(!currentEffectiveStoreId || currentEffectiveStoreId === 'all') && (
                     <TableHead>Entrepôt</TableHead>
@@ -537,6 +533,9 @@ function ProductsContent() {
               <TableBody>
                 {filteredProducts.map((product) => (
                   <TableRow key={product.id}>
+                    <TableCell className="whitespace-nowrap font-mono text-sm font-semibold text-slate-700">
+                      {product.sku || '—'}
+                    </TableCell>
                     <TableCell className="font-medium">
                       <div>{product.name}</div>
                       {product.description && (
@@ -579,7 +578,7 @@ function ProductsContent() {
                 {filteredProducts.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={currentEffectiveStoreId && currentEffectiveStoreId !== 'all' ? 4 : 5}
+                      colSpan={currentEffectiveStoreId && currentEffectiveStoreId !== 'all' ? 5 : 6}
                       className="text-center py-8 text-gray-400"
                     >
                       Aucun produit ne correspond à votre recherche.
@@ -617,10 +616,6 @@ function ProductsContent() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prodSku">Référence interne (SKU)</Label>
-                    <Input id="prodSku" placeholder="Ex: ASUS-123" value={sku} onChange={(e) => setSku(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="prodPrice">Prix Unitaire *</Label>
                     <div className="relative flex items-center">
                       <Input id="prodPrice" type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(Number(e.target.value))} required className="pr-16" />
@@ -652,7 +647,7 @@ function ProductsContent() {
                       {similarProducts.map((p) => (
                         <li key={p.id}>
                           <span className="font-semibold">{p.name}</span>
-                          {p.sku ? ` (SKU: ${p.sku})` : ''} — {p.quantity} unité(s) en stock
+                          {p.sku ? ` (${p.sku})` : ''} — {p.quantity} unité(s) en stock
                         </li>
                       ))}
                     </ul>
@@ -704,12 +699,8 @@ function ProductsContent() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="editProdSku">Référence interne (SKU)</Label>
-                    <Input 
-                      id="editProdSku" 
-                      value={editSku} 
-                      onChange={(e) => setEditSku(e.target.value)} 
-                    />
+                    <Label htmlFor="editProdSku">Référence</Label>
+                    <Input id="editProdSku" value={editProduct?.sku ?? ''} disabled className="font-mono" />
                   </div>
 
                   <div className="space-y-2">

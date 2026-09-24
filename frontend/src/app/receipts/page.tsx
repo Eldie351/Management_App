@@ -521,7 +521,7 @@ function ReceiptsContent() {
             <thead>
               <tr>
                 <th>Article</th>
-                <th>SKU</th>
+                <th>Réf.</th>
                 <th>Qté</th>
                 <th>PU</th>
                 <th>Total</th>
@@ -1257,7 +1257,7 @@ function ReceiptsContent() {
                     <thead>
                       <tr className="border-b">
                         <th className="py-1">Article</th>
-                        <th className="py-1">SKU</th>
+                        <th className="py-1">Réf.</th>
                         <th className="py-1 text-center">Qté</th>
                         <th className="py-1 text-right">PU</th>
                         <th className="py-1 text-right">Total</th>

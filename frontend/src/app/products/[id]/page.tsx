@@ -60,7 +60,6 @@ export default function ProductDetailsPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState(0);
   const [editQuantity, setEditQuantity] = useState(0);
   const [editDescription, setEditDescription] = useState('');
@@ -99,7 +98,6 @@ export default function ProductDetailsPage() {
         const data = await res.json();
         setDetails(data);
         setEditName(data.general.name || '');
-        setEditSku(data.general.sku || '');
         setEditPrice(Number(data.general.price ?? 0));
         setEditQuantity(data.stock.currentStock ?? 0);
         setEditDescription(data.general.description || '');
@@ -126,7 +124,6 @@ export default function ProductDetailsPage() {
   const handleOpenEditModal = () => {
     if (details) {
       setEditName(details.general.name || '');
-      setEditSku(details.general.sku || '');
       setEditPrice(Number(details.general.price ?? 0));
       setEditQuantity(details.stock.currentStock ?? 0);
       setEditDescription(details.general.description || '');
@@ -181,7 +178,6 @@ export default function ProductDetailsPage() {
       },
       body: JSON.stringify({
         name: editName,
-        sku: editSku || null,
         price: Number(editPrice),
         quantity: Number(editQuantity),
         description: editDescription || null,
@@ -310,7 +306,7 @@ export default function ProductDetailsPage() {
                 <p className="font-semibold">{details.general.name}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">SKU</p>
+                <p className="text-sm text-gray-500">Référence</p>
                 <p className="font-semibold">{details.general.sku || 'N/A'}</p>
               </div>
               <div>
@@ -456,12 +452,8 @@ export default function ProductDetailsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="editSku">SKU</Label>
-                  <Input 
-                    id="editSku" 
-                    value={editSku} 
-                    onChange={(e) => setEditSku(e.target.value)} 
-                  />
+                  <Label htmlFor="editSku">Référence</Label>
+                  <Input id="editSku" value={details?.general.sku ?? ''} disabled className="font-mono" />
                 </div>
 
                 <div className="space-y-2">
