@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { getStoredUserRole } from '@/lib/auth';
 import { escapeHtml } from '@/lib/html';
+import { searchProducts } from '@/lib/product-search';
 import { FileText, Printer } from 'lucide-react';
 
 function ProductsContent() {
@@ -156,15 +157,7 @@ function ProductsContent() {
   }, [API, storeId, activeStoreId]);
 
   // Filtrage dynamique en temps réel
-  const filteredProducts = products.filter((product) => {
-    const query = searchQuery.toLowerCase().trim();
-    if (!query) return true;
-    return (
-      product.name?.toLowerCase().includes(query) ||
-      product.sku?.toLowerCase().includes(query) ||
-      product.description?.toLowerCase().includes(query)
-    );
-  });
+  const filteredProducts = searchProducts(products, searchQuery);
 
   // Envoie effectivement la création du produit au backend.
   const submitProductCreation = async () => {
