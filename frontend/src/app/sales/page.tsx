@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { LoadingDots } from '@/components/ui/loading_dots';
 import { getStoredUserRole, type AppRole } from '@/lib/auth';
 import { escapeHtml } from '@/lib/html';
+import { searchProducts } from '@/lib/product-search';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -217,14 +218,7 @@ export default function SalesPage() {
   const storeCurrency = currentStoreObj?.currency || 'XOF';
 
   // Filtrage des produits dans le champ de recherche
-  const filteredProductOptions = storeProducts.filter((p) => {
-    const query = productSearchQuery.toLowerCase().trim();
-    if (!query) return true;
-    return (
-      p.name?.toLowerCase().includes(query) ||
-      p.sku?.toLowerCase().includes(query)
-    );
-  });
+  const filteredProductOptions = searchProducts(storeProducts, productSearchQuery);
 
   const currentSelectedProductObj = storeProducts.find(p => String(p.id) === selectedProductId);
 
